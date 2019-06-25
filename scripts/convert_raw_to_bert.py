@@ -19,7 +19,7 @@ import numpy as np
 argp = ArgumentParser()
 argp.add_argument('input_path')
 argp.add_argument('output_path')
-argp.add_argument('bert_model', help='base or large')
+argp.add_argument('bert_model', help='base, large, or multilingual')
 args = argp.parse_args()
 
 # Load pre-trained model tokenizer (vocabulary)
@@ -34,6 +34,11 @@ elif args.bert_model == 'large':
   model = BertModel.from_pretrained('bert-large-cased')
   LAYER_COUNT = 24
   FEATURE_COUNT = 1024
+elif args.bert_model == 'multilingual':
+    tokenizer = BertTokenizer.from_pretrained('bert-base-multilingual-cased')
+    model = BertModel.from_pretrained('bert-base-multilingual-cased')
+    LAYER_COUNT = 12
+    FEATURE_COUNT = 768
 else:
   raise ValueError("BERT model must be base or large")
 
@@ -43,6 +48,7 @@ with h5py.File(args.output_path, 'w') as fout:
   for index, line in enumerate(open(args.input_path)):
     line = line.strip() # Remove trailing characters
     line = '[CLS] ' + line + ' [SEP]'
+#    print(len(line.split()))
     tokenized_text = tokenizer.wordpiece_tokenizer.tokenize(line)
     indexed_tokens = tokenizer.convert_tokens_to_ids(tokenized_text)
     segment_ids = [1 for x in tokenized_text]

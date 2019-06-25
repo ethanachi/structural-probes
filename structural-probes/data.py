@@ -372,7 +372,10 @@ class BERTDataset(SubwordDataset):
     if subword_tokenizer == None:
       try:
         from pytorch_pretrained_bert import BertTokenizer
-        if self.args['model']['hidden_dim'] == 768:
+        if 'multilingual' in self.args['model'] and self.args['model']['multilingual'] == True:
+            subword_tokenizer = BertTokenizer.from_pretrained('bert-base-multilingual-cased')
+            print('Using BERT-base-multilingual tokenizer to align embeddings with PTB tokens')
+        elif self.args['model']['hidden_dim'] == 768:
           subword_tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
           print('Using BERT-base-cased tokenizer to align embeddings with PTB tokens')
         elif self.args['model']['hidden_dim'] == 1024:
@@ -394,6 +397,8 @@ class BERTDataset(SubwordDataset):
       tokenized_sent = subword_tokenizer.wordpiece_tokenizer.tokenize('[CLS] ' + ' '.join(observation.sentence) + ' [SEP]')
       untokenized_sent = observation.sentence
       untok_tok_mapping = self.match_tokenized_to_untokenized(tokenized_sent, untokenized_sent)
+      print("Layer features shape=", single_layer_features.shape)
+      print("Tokenized sentence length=", len(tokenized_sent))
       assert single_layer_features.shape[0] == len(tokenized_sent)
       single_layer_features = torch.tensor([np.mean(single_layer_features[untok_tok_mapping[i][0]:untok_tok_mapping[i][-1]+1,:], axis=0) for i in range(len(untokenized_sent))])
       assert single_layer_features.shape[0] == len(observation.sentence)
