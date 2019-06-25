@@ -122,9 +122,21 @@ class SimpleDataset:
     lines = (x for x in open(filepath))
     for buf in self.generate_lines_for_sent(lines):
       conllx_lines = []
+      skip_count = 0
       for line in buf:
+        parts = line.strip().split('\t')
         conllx_lines.append(line.strip().split('\t'))
       embeddings = [None for x in range(len(conllx_lines))]
+      for index in range(len(conllx_lines)):
+          if index >= len(conllx_lines): break
+          line = conllx_lines[index]
+          if '-' in line[0]:
+              newLine = conllx_lines[index+1]
+              newLine[1] = line[1]
+              conllx_lines[index] = newLine
+              l, r = [int(x) for x in line[0].split('-')]
+              width = r - l + 1
+              del conllx_lines[index+1:index+1+width]
       observation = self.observation_class(*zip(*conllx_lines), embeddings)
       observations.append(observation)
     return observations
