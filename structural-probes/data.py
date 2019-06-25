@@ -408,6 +408,7 @@ class BERTDataset(SubwordDataset):
       single_layer_features = feature_stack[elmo_layer]
       tokenized_sent = subword_tokenizer.wordpiece_tokenizer.tokenize('[CLS] ' + ' '.join(observation.sentence) + ' [SEP]')
       untokenized_sent = observation.sentence
+      print(observation.sentence)
       untok_tok_mapping = self.match_tokenized_to_untokenized(tokenized_sent, untokenized_sent)
       print("Layer features shape=", single_layer_features.shape)
       print("Tokenized sentence length=", len(tokenized_sent))
