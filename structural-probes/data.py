@@ -394,6 +394,7 @@ class BERTDataset(SubwordDataset):
       observation = observations[index]
       feature_stack = hf[str(index)]
       single_layer_features = feature_stack[elmo_layer]
+      print("Sentence being tokenized: " +  '[CLS] ' + ' '.join(observation.sentence) + ' [SEP]')
       tokenized_sent = subword_tokenizer.wordpiece_tokenizer.tokenize('[CLS] ' + ' '.join(observation.sentence) + ' [SEP]')
       untokenized_sent = observation.sentence
       print(observation.sentence)
