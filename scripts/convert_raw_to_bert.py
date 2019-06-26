@@ -48,9 +48,9 @@ with h5py.File(args.output_path, 'w') as fout:
   for index, line in enumerate(open(args.input_path)):
     line = line.strip() # Remove trailing characters
     line = '[CLS] ' + line + ' [SEP]'
+    
+    print("Sentence being tokenized: " + line)
     print("Line length:", len(line.split()))
-    print("Sentence being tokenized: " +  '[CLS] ' + line + ' [SEP]')
-
     tokenized_text = tokenizer.wordpiece_tokenizer.tokenize(line)
     indexed_tokens = tokenizer.convert_tokens_to_ids(tokenized_text)
     print(len(indexed_tokens), "token(s) produced.")
