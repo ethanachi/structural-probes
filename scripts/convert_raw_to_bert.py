@@ -48,10 +48,10 @@ with h5py.File(args.output_path, 'w') as fout:
   for index, line in enumerate(open(args.input_path)):
     line = line.strip() # Remove trailing characters
     line = '[CLS] ' + line + ' [SEP]'
-#    print(len(line.split()))
+    print(len(line.split()))
     tokenized_text = tokenizer.wordpiece_tokenizer.tokenize(line)
     indexed_tokens = tokenizer.convert_tokens_to_ids(tokenized_text)
-    print(indexed_tokens.shape)
+    print(len(indexed_tokens))
     segment_ids = [1 for x in tokenized_text]
   
     # Convert inputs to PyTorch tensors
