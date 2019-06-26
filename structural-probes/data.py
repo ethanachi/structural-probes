@@ -281,7 +281,7 @@ class SimpleDataset:
           Observation batch (not padded)
     '''
     if self.use_disk_embeddings:
-      seqs = [torch.tensor(x[0].embeddings, device=self.args['device']) for x in batch_observations]
+      seqs = [x[0].embeddings.clone().detach() for x in batch_observations]
     else:
       seqs = [torch.tensor(x[0].sentence, device=self.args['device']) for x in batch_observations]
     lengths = torch.tensor([len(x) for x in seqs], device=self.args['device'])
