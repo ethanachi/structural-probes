@@ -51,6 +51,7 @@ with h5py.File(args.output_path, 'w') as fout:
 #    print(len(line.split()))
     tokenized_text = tokenizer.wordpiece_tokenizer.tokenize(line)
     indexed_tokens = tokenizer.convert_tokens_to_ids(tokenized_text)
+    print(indexed_tokens.shape)
     segment_ids = [1 for x in tokenized_text]
   
     # Convert inputs to PyTorch tensors
@@ -59,6 +60,7 @@ with h5py.File(args.output_path, 'w') as fout:
   
     with torch.no_grad():
         encoded_layers, _ = model(tokens_tensor, segments_tensors)
+    
     dset = fout.create_dataset(str(index), (LAYER_COUNT, len(tokenized_text), FEATURE_COUNT))
     dset[:,:,:] = np.vstack([np.array(x) for x in encoded_layers])
   
