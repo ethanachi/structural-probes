@@ -14,16 +14,15 @@ argp.add_argument('input_conll_filepath')
 args = argp.parse_args()
 
 buf = []
-
+toRemove = 0
 for line in open(args.input_conll_filepath):
-  toRemove = 0
   if line.startswith('#'):
     continue
   if not line.strip():
     sys.stdout.write(' '.join(buf) + '\n')
     buf = []
   else:
-    if toRemove > 0: 
+    if toRemove > 0:
       toRemove -= 1
       continue
     items = line.split('\t')
