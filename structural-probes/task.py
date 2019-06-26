@@ -30,9 +30,9 @@ class ParseDistanceTask(Task):
     sentence_length = len(observation[0]) #All observation fields must be of same length
     distances = torch.zeros((sentence_length, sentence_length))
     for i in range(sentence_length):
-      print(i)
+      # print(i)
       for j in range(i,sentence_length):
-        print(j)
+        # print(j)
         i_j_distance = ParseDistanceTask.distance_between_pairs(observation, i, j)
         distances[i][j] = i_j_distance
         distances[j][i] = i_j_distance
@@ -72,7 +72,10 @@ class ParseDistanceTask(Task):
     j_path = [j+1]
     i_head = i+1
     j_head = j+1
-    while True:
+    print(head_indices)
+    n = 30
+    while True and n > 0:
+      n -= 1
       if not (i_head == 0 and (i_path == [i+1] or i_path[-1] == 0)):
         i_head = head_indices[i_head - 1]
         i_path.append(i_head)

@@ -127,6 +127,7 @@ class SimpleDataset:
         parts = line.strip().split('\t')
         conllx_lines.append(line.strip().split('\t'))
       embeddings = [None for x in range(len(conllx_lines))]
+      index_mappings = {'0': '0'}
       for index in range(len(conllx_lines)):
           if index >= len(conllx_lines): break
           line = conllx_lines[index]
@@ -137,8 +138,18 @@ class SimpleDataset:
               l, r = [int(x) for x in line[0].split('-')]
               width = r - l + 1
               del conllx_lines[index+1:index+1+width]
-      observation = self.observation_class(*zip(*conllx_lines), embeddings)
+          index_mappings[conllx_lines[index][0]] = str(index + 1)
+          conllx_lines[index][0] = str(index + 1)
+      print(index_mappings)
+      data = list(zip(*conllx_lines))
+      fieldnamesIndex = self.args['dataset']['observation_fieldnames'].index('head_indices')
+      data[fieldnamesIndex] = [index_mappings[x] for x in data[fieldnamesIndex]] 
+      observation = self.observation_class(*data, embeddings)  
       observations.append(observation)
+    for i in range(5): 
+      print(i)
+      print(observations[i])
+      print("\n\n\n")
     return observations
 
   def add_embeddings_to_observations(self, observations, embeddings):
