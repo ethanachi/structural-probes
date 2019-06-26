@@ -121,11 +121,13 @@ class SimpleDataset:
     observations = []
     lines = (x for x in open(filepath))
     for buf in self.generate_lines_for_sent(lines):
+      # print(buf)
       conllx_lines = []
       skip_count = 0
       for line in buf:
         parts = line.strip().split('\t')
         conllx_lines.append(line.strip().split('\t'))
+      conllx_lines = [x for x in conllx_lines if '.' not in x[0]]
       embeddings = [None for x in range(len(conllx_lines))]
       index_mappings = {'0': '0'}
       for index in range(len(conllx_lines)):
@@ -140,8 +142,10 @@ class SimpleDataset:
               del conllx_lines[index+1:index+1+width]
           index_mappings[conllx_lines[index][0]] = str(index + 1)
           conllx_lines[index][0] = str(index + 1)
-      print(index_mappings)
+      # print(index_mappings)
       data = list(zip(*conllx_lines))
+      # obs_test = self.observation_class(*data, embeddings)
+      # print(obs_test)
       fieldnamesIndex = self.args['dataset']['observation_fieldnames'].index('head_indices')
       data[fieldnamesIndex] = [index_mappings[x] for x in data[fieldnamesIndex]] 
       observation = self.observation_class(*data, embeddings)  
@@ -417,13 +421,13 @@ class BERTDataset(SubwordDataset):
       observation = observations[index]
       feature_stack = hf[str(index)]
       single_layer_features = feature_stack[elmo_layer]
-      print("Sentence being tokenized: " +  '[CLS] ' + ' '.join(observation.sentence) + ' [SEP]')
+      # print("Sentence being tokenized: " +  '[CLS] ' + ' '.join(observation.sentence) + ' [SEP]')
       tokenized_sent = subword_tokenizer.wordpiece_tokenizer.tokenize('[CLS] ' + ' '.join(observation.sentence) + ' [SEP]')
       untokenized_sent = observation.sentence
-      print(observation.sentence)
+      # print(observation.sentence)
       untok_tok_mapping = self.match_tokenized_to_untokenized(tokenized_sent, untokenized_sent)
-      print("Layer features shape=", single_layer_features.shape)
-      print("Tokenized sentence length=", len(tokenized_sent))
+      # print("Layer features shape=", single_layer_features.shape)
+      # print("Tokenized sentence length=", len(tokenized_sent))
       assert single_layer_features.shape[0] == len(tokenized_sent)
       single_layer_features = torch.tensor([np.mean(single_layer_features[untok_tok_mapping[i][0]:untok_tok_mapping[i][-1]+1,:], axis=0) for i in range(len(untokenized_sent))])
       assert single_layer_features.shape[0] == len(observation.sentence)

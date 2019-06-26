@@ -26,6 +26,7 @@ for line in open(args.input_conll_filepath):
       toRemove -= 1
       continue
     items = line.split('\t')
+    if '.' in items[0]: continue
     if '-' in items[0]:
       l, r = [int(x) for x in items[0].split('-')]
       toRemove = r - l + 1
