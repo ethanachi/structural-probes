@@ -120,6 +120,7 @@ class SimpleDataset:
     '''
     observations = []
     lines = (x for x in open(filepath))
+    fieldnamesIndex = self.args['dataset']['observation_fieldnames'].index('head_indices')
     for buf in self.generate_lines_for_sent(lines):
       # print(buf)
       conllx_lines = []
@@ -134,21 +135,28 @@ class SimpleDataset:
           if index >= len(conllx_lines): break
           line = conllx_lines[index]
           if '-' in line[0]:
-              newLine = conllx_lines[index+1]
-              newLine[1] = line[1]
-              conllx_lines[index] = newLine
-              l, r = [int(x) for x in line[0].split('-')]
-              width = r - l + 1
-              del conllx_lines[index+1:index+1+width]
-          index_mappings[conllx_lines[index][0]] = str(index + 1)
+            l, r = [int(x) for x in line[0].split('-')]
+            width = r - l + 1
+            newLine = conllx_lines[index+1]
+            newLine[0] = str(l)
+            newLine[1] = line[1]
+            possibleIndices = [l[fieldnamesIndex] for l in conllx_lines[index+1:index+1+width]]
+            print("pi=", possibleIndices)
+            toUse = next(filter(lambda y: not (l <= int(y) <= r), possibleIndices))
+            newLine[fieldnamesIndex] = toUse
+            conllx_lines[index] = newLine
+            del conllx_lines[index+1:index+1+width]
+            for i in range(l, r + 1): index_mappings[str(i)] = str(index + 1)
+          else: index_mappings[conllx_lines[index][0]] = str(index + 1)
           conllx_lines[index][0] = str(index + 1)
-      # print(index_mappings)
+      print(index_mappings)
       data = list(zip(*conllx_lines))
-      # obs_test = self.observation_class(*data, embeddings)
-      # print(obs_test)
-      fieldnamesIndex = self.args['dataset']['observation_fieldnames'].index('head_indices')
+      obs_test = self.observation_class(*data, embeddings)
+      print(obs_test)
+
       data[fieldnamesIndex] = [index_mappings[x] for x in data[fieldnamesIndex]] 
-      observation = self.observation_class(*data, embeddings)  
+      observation = self.observation_class(*data, embeddings)
+      print(observation)
       observations.append(observation)
     for i in range(5): 
       print(i)

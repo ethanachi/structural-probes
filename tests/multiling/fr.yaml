@@ -12,16 +12,16 @@ dataset:
      - extra_info
      - embeddings
   corpus:
-    root: /u/scr/ethanchi/en
-    train_path: en_ewt-ud-train.conllu
-    dev_path: en_ewt-ud-dev.conllu
-    test_path: en_ewt-ud-test.conllu
+    root: /u/scr/ethanchi/fr
+    train_path: train.conllu
+    dev_path: dev.conllu
+    test_path: test.conllu
   embeddings:
     type: token #{token,subword}
-    root: /u/scr/ethanchi/en/
-    train_path: en_ewt-ud-train-multilingual.hdf5
-    dev_path: en_ewt-ud-dev-multilingual.hdf5
-    test_path: en_ewt-ud-test-multilingual.hdf5
+    root: /u/scr/ethanchi/fr
+    train_path: train-multilingual.hdf5
+    dev_path: dev-multilingual.hdf5
+    test_path: test-multilingual.hdf5
   batch_size: 40
 model:
   hidden_dim: 768 # ELMo hidden dim
