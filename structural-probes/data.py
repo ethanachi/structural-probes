@@ -149,19 +149,16 @@ class SimpleDataset:
             for i in range(l, r + 1): index_mappings[str(i)] = str(index + 1)
           else: index_mappings[conllx_lines[index][0]] = str(index + 1)
           conllx_lines[index][0] = str(index + 1)
-      print(index_mappings)
+      # print(index_mappings)
       data = list(zip(*conllx_lines))
       obs_test = self.observation_class(*data, embeddings)
-      print(obs_test)
+      # print(obs_test)
 
       data[fieldnamesIndex] = [index_mappings[x] for x in data[fieldnamesIndex]] 
       observation = self.observation_class(*data, embeddings)
-      print(observation)
+      # print(observation)
       observations.append(observation)
-    for i in range(5): 
-      print(i)
-      print(observations[i])
-      print("\n\n\n")
+
     return observations
 
   def add_embeddings_to_observations(self, observations, embeddings):
