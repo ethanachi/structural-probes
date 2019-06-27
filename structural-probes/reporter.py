@@ -190,7 +190,7 @@ class WordPairReporter(Reporter):
           prediction_batch, label_batch,
           length_batch, observation_batch):
         words = observation.sentence
-        poses = observation.xpos_sentence
+        poses = observation.upos_sentence
         length = int(length)
         assert length == len(observation.sentence)
         prediction = prediction[:length,:length]
@@ -389,9 +389,9 @@ def prims_matrix_to_edges(matrix, words, poses):
   uf = UnionFind(len(matrix))
   for i_index, line in enumerate(matrix):
     for j_index, dist in enumerate(line):
-      if poses[i_index] in ["''", ",", ".", ":", "``", "-LRB-", "-RRB-"]:
+      if poses[i_index] in ["''", ",", ".", ":", "``", "-LRB-", "-RRB-", "PUNCT"]:
         continue
-      if poses[j_index] in ["''", ",", ".", ":", "``", "-LRB-", "-RRB-"]:
+      if poses[j_index] in ["''", ",", ".", ":", "``", "-LRB-", "-RRB-", "PUNCT"]:
         continue
       pairs_to_distances[(i_index, j_index)] = dist
   edges = []
