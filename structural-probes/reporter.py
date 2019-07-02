@@ -387,6 +387,7 @@ def prims_matrix_to_edges(matrix, words, poses):
   '''
   pairs_to_distances = {}
   uf = UnionFind(len(matrix))
+  # print(poses)
   for i_index, line in enumerate(matrix):
     for j_index, dist in enumerate(line):
       if poses[i_index] in ["''", ",", ".", ":", "``", "-LRB-", "-RRB-", "PUNCT"]:

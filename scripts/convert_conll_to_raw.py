@@ -11,15 +11,17 @@ import argparse
 
 argp = argparse.ArgumentParser()
 argp.add_argument('input_conll_filepath')
+argp.add_argument('--use_chinese', dest='use_chinese', action='store_true', default=False)
 args = argp.parse_args()
 
 buf = []
 toRemove = 0
+joiningString = ' ' if not args.use_chinese else ''
 for line in open(args.input_conll_filepath):
   if line.startswith('#'):
     continue
   if not line.strip():
-    sys.stdout.write(' '.join(buf) + '\n')
+    sys.stdout.write(joiningString.join(buf) + '\n')
     buf = []
   else:
     if toRemove > 0:

@@ -74,7 +74,7 @@ class ParseDistanceTask(Task):
     i_head = i+1
     j_head = j+1
     # print(head_indices)
-    n = 30
+    n = 60
     while True and n > 0:
       n -= 1
       if not (i_head == 0 and (i_path == [i+1] or i_path[-1] == 0)):

@@ -141,7 +141,7 @@ class SimpleDataset:
             newLine[0] = str(l)
             newLine[1] = line[1]
             possibleIndices = [l[fieldnamesIndex] for l in conllx_lines[index+1:index+1+width]]
-            print("pi=", possibleIndices)
+            # print("pi=", possibleIndices)
             toUse = next(filter(lambda y: not (l <= int(y) <= r), possibleIndices))
             newLine[fieldnamesIndex] = toUse
             conllx_lines[index] = newLine
@@ -348,6 +348,8 @@ class SubwordDataset(SimpleDataset):
     mapping = defaultdict(list)
     untokenized_sent_index = 0
     tokenized_sent_index = 1
+    # print(untokenized_sent)
+    # print(tokenized_sent)
     while (untokenized_sent_index < len(untokenized_sent) and
         tokenized_sent_index < len(tokenized_sent)):
       while (tokenized_sent_index + 1 < len(tokenized_sent) and
@@ -357,6 +359,7 @@ class SubwordDataset(SimpleDataset):
       mapping[untokenized_sent_index].append(tokenized_sent_index)
       untokenized_sent_index += 1
       tokenized_sent_index += 1
+    # print(mapping)
     return mapping
 
   def generate_subword_embeddings_from_hdf5(self, observations, filepath, elmo_layer, subword_tokenizer=None):
@@ -422,17 +425,19 @@ class BERTDataset(SubwordDataset):
     hf = h5py.File(filepath, 'r')
     indices = list(hf.keys())
     single_layer_features_list = []
+    joiner = ' ' if 'use_no_spaces' in self.args['model'] and self.args['model']['use_no_spaces'] == True else ' '
     for index in tqdm(sorted([int(x) for x in indices]), desc='[aligning embeddings]'):
       observation = observations[index]
       feature_stack = hf[str(index)]
       single_layer_features = feature_stack[elmo_layer]
-      # print("Sentence being tokenized: " +  '[CLS] ' + ' '.join(observation.sentence) + ' [SEP]')
-      tokenized_sent = subword_tokenizer.wordpiece_tokenizer.tokenize('[CLS] ' + ' '.join(observation.sentence) + ' [SEP]')
+      # print("Sentence being tokenized: " +  '[CLS] ' + joiner.join(observation.sentence) + ' [SEP]')
+      tokenized_sent = subword_tokenizer.wordpiece_tokenizer.tokenize('[CLS] ' + joiner.join(observation.sentence) + ' [SEP]')
       untokenized_sent = observation.sentence
       # print(observation.sentence)
       untok_tok_mapping = self.match_tokenized_to_untokenized(tokenized_sent, untokenized_sent)
       # print("Layer features shape=", single_layer_features.shape)
       # print("Tokenized sentence length=", len(tokenized_sent))
+      # print(tokenized_sent)
       assert single_layer_features.shape[0] == len(tokenized_sent)
       single_layer_features = torch.tensor([np.mean(single_layer_features[untok_tok_mapping[i][0]:untok_tok_mapping[i][-1]+1,:], axis=0) for i in range(len(untokenized_sent))])
       assert single_layer_features.shape[0] == len(observation.sentence)
