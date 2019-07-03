@@ -12,17 +12,17 @@ dataset:
      - extra_info
      - embeddings
   corpus:
-    root: /u/scr/ethanchi/{lang}/
-    train_path: train.conllu
-    dev_path: dev.conllu
-    test_path: test.conllu
+    root: /u/scr/ethanchi/
+    train_path: {srcLang}/train.conllu
+    dev_path: {destLang}/dev.conllu
+    test_path: {destLang}/test.conllu
   embeddings:
     type: token #(token,subword)
-    root: /u/scr/ethanchi/{lang}/
-    train_path: train-{trainingType}.hdf5
-    dev_path: dev-{trainingType}.hdf5
-    test_path: test-{trainingType}.hdf5
-  batch_size: 40
+    root: /u/scr/ethanchi/
+    train_path: {srcLang}/train-{trainingType}.hdf5
+    dev_path: {destLang}/dev-{trainingType}.hdf5
+    test_path: {destLang}/test-{trainingType}.hdf5
+  batch_size: 20
 model:
   hidden_dim: 768 # ELMo hidden dim
   #embedding_dim: 1024 # ELMo word embedding dim
@@ -33,7 +33,7 @@ model:
 probe:
   task_signature: word_pair # word, word_pair
   task_name: parse-distance
-  maximum_rank: 32
+  maximum_rank: {rank}
   psd_parameters: True
   diagonal: False
   params_path: predictor.params
@@ -41,7 +41,7 @@ probe_training:
   epochs: 30
   loss: L1
 reporting:
-  root: tests/multiling/experimentResults
+  root: /sailhome/ethanchi/structural-probes/tests/multiling/experimentResults/
   observation_paths:
     train_path: train.observations
     dev_path: dev.observations

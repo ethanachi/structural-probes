@@ -2,8 +2,9 @@
 
 fname="sl/$(date +"%m-%d-%Y-%H-%M.txt")"
 echo $fname
-for f in experiments/*.sh;
+for f in `find $1`;
 do
   id=$(sbatch $f | cut -d ' ' -f 4)
-  echo "$fname\t$id" >> $fname
+  echo $f
+  echo $f$'\t'$id >> $fname
 done
