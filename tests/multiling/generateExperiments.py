@@ -5,7 +5,7 @@ for lang in LANGS: LANGS_WITH_SMALL.add('sm' + lang)
 assert len(LANGS_WITH_SMALL) == 2 * len(LANGS)
 
 def generateReplacements(lines, filename, srcLang='en', destLang='en', trainingType='multilingual', modelLayer=7, rank=32):
-  useMultilingual = (trainingType == 'multilingual')
+  useMultilingual = (trainingType in ('multilingual', 'multirandom'))
   return [x.format(
     srcLang=srcLang,
     destLang=destLang, 
@@ -25,7 +25,7 @@ with open('template.sh', 'r') as shFile:
 
 #monolingual
 for lang in LANGS_WITH_SMALL: 
-  for trainingType in ('multilingual', 'large', 'base'):
+  for trainingType in ('multilingual', 'large', 'base', 'multirandom'):
     for modelLayer in range(0, 12):
       for rank in (1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 768):
         filename = "{}-{}-{}-{}.yaml".format(lang, trainingType, modelLayer, rank)

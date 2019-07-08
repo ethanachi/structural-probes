@@ -14,6 +14,11 @@ class Task:
     """
     raise NotImplementedError
 
+class DummyTask:
+  @staticmethod
+  def labels(observation):
+    return torch.zeros(0)
+
 class ParseDistanceTask(Task):
   """Maps observations to dependency parse distances between words."""
 
@@ -29,7 +34,8 @@ class ParseDistanceTask(Task):
     """
     sentence_length = len(observation[0]) #All observation fields must be of same length
     distances = torch.zeros((sentence_length, sentence_length))
-    # print(observation.sentence)
+    # print(observation)
+    # for i in range(len(observation.head_indices)): print(i+1, observation.head_indices[i])
     for i in range(sentence_length):
       # print(i)
       for j in range(i,sentence_length):
@@ -150,4 +156,5 @@ class ParseDepthTask:
         length += 1
       else:
         return length
+
 

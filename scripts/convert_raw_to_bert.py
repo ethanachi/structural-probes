@@ -35,12 +35,17 @@ elif args.bert_model == 'large':
   LAYER_COUNT = 24
   FEATURE_COUNT = 1024
 elif args.bert_model == 'multilingual':
-    tokenizer = BertTokenizer.from_pretrained('bert-base-multilingual-cased')
-    model = BertModel.from_pretrained('bert-base-multilingual-cased')
-    LAYER_COUNT = 12
-    FEATURE_COUNT = 768
+  tokenizer = BertTokenizer.from_pretrained('bert-base-multilingual-cased')
+  model = BertModel.from_pretrained('bert-base-multilingual-cased')
+  LAYER_COUNT = 12
+  FEATURE_COUNT = 768
+elif args.bert_model == 'multirandom':
+  tokenizer = BertTokenizer.from_pretrained('bert-base-multilingual-cased')
+  model = BertModel.from_pretrained('/sailhome/ethanchi/structural-probes/bertParams/random.tar')
+  LAYER_COUNT = 12
+  FEATURE_COUNT = 768
 else:
-  raise ValueError("BERT model must be base or large")
+  raise ValueError("BERT model must be base, large, multilingual, or multilingual-randomized")
 
 model.eval()
 
@@ -49,12 +54,12 @@ with h5py.File(args.output_path, 'w') as fout:
     line = line.strip() # Remove trailing characters
     line = '[CLS] ' + line + ' [SEP]'
     
-    # print("Sentence being tokenized: " + line)
-    # print("Line length:", len(line.split()))
+    print("Sentence being tokenized: " + str(index) + " " + line)
+    print("Line length:", len(line.split()))
     tokenized_text = tokenizer.wordpiece_tokenizer.tokenize(line)
-    # print(tokenized_text)
+    print(tokenized_text)
     indexed_tokens = tokenizer.convert_tokens_to_ids(tokenized_text)
-    # print(len(indexed_tokens), "token(s) produced.")
+    print(len(indexed_tokens), "token(s) produced.")
     segment_ids = [1 for x in tokenized_text]
   
     # Convert inputs to PyTorch tensors

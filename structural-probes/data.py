@@ -142,8 +142,9 @@ class SimpleDataset:
             newLine[1] = line[1]
             possibleIndices = [l[fieldnamesIndex] for l in conllx_lines[index+1:index+1+width]]
             # print("pi=", possibleIndices)
-            toUse = next(filter(lambda y: not (l <= int(y) <= r), possibleIndices))
-            newLine[fieldnamesIndex] = toUse
+            toUse = list(filter(lambda y: not (l <= int(y) <= r), possibleIndices))
+            # print(list(filter(lambda y: not (l <= int(y) <= r), possibleIndices)))
+            newLine[fieldnamesIndex] = toUse[0] if len(toUse) == 1 else toUse
             conllx_lines[index] = newLine
             del conllx_lines[index+1:index+1+width]
             for i in range(l, r + 1): index_mappings[str(i)] = str(index + 1)
@@ -151,10 +152,29 @@ class SimpleDataset:
           conllx_lines[index][0] = str(index + 1)
       # print(index_mappings)
       data = list(zip(*conllx_lines))
-      obs_test = self.observation_class(*data, embeddings)
+      # obs_test = self.observation_class(*data, embeddings)
       # print(obs_test)
 
-      data[fieldnamesIndex] = [index_mappings[x] for x in data[fieldnamesIndex]] 
+      def toMapping(x): 
+        if isinstance(x, list): return [index_mappings[y] for y in x]
+        return index_mappings[x]
+      # print(' '.join(data.sentence))
+      head_indices = [toMapping(x) for x in data[fieldnamesIndex]]
+      
+      # print(head_indices)
+      for i in range(len(head_indices)):
+        indices = head_indices[i]
+        if not isinstance(indices, list): continue
+        # print("Found list at", i, indices)
+        for idx in indices:
+          #print(idx)
+          if head_indices[int(idx)-1] == str(i + 1): indices.remove(idx)
+        if len(indices) == 1: head_indices[i] = indices[0]
+        elif len(indices) == 0: 
+            # print("Error: all removed.")
+            raise AssertionError
+        else: head_indices[i] = indices[-1]
+      data[fieldnamesIndex] = head_indices
       observation = self.observation_class(*data, embeddings)
       # print(observation)
       observations.append(observation)
