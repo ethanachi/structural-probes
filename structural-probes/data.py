@@ -168,7 +168,7 @@ class SimpleDataset:
         # print("Found list at", i, indices)
         for idx in indices:
           #print(idx)
-          if head_indices[int(idx)-1] == str(i + 1): indices.remove(idx)
+          if head_indices[int(idx)-1] == str(i + 1) or isinstance(head_indices[int(idx) - 1], list) and str(i + 1) in head_indices[int(idx)-1]: indices.remove(idx)
         if len(indices) == 1: head_indices[i] = indices[0]
         elif len(indices) == 0: 
             # print("Error: all removed.")

@@ -34,7 +34,6 @@ class ParseDistanceTask(Task):
     """
     sentence_length = len(observation[0]) #All observation fields must be of same length
     distances = torch.zeros((sentence_length, sentence_length))
-    # print(observation)
     # for i in range(len(observation.head_indices)): print(i+1, observation.head_indices[i])
     for i in range(sentence_length):
       # print(i)
