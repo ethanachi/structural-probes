@@ -1,3 +1,4 @@
 .DS_Store
 tests/multiling/experiments/*
 tests/results
+tests/multiling/results
