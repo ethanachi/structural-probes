@@ -46,6 +46,9 @@ def evaluate_vectors(args, probe, dataset, model, results_dir, output_name):
   projections = load_projected_representations(probe, model, dataloader)
 
   relations_to_projections = defaultdict(list)
+  relations_to_sentences = defaultdict(list)
+  relations_to_idxs = defaultdict(list)
+  relations_to_words = defaultdict(list)
   for projection_batch, (data_batch, label_batch, length_batch, observation_batch) in zip(projections, dataloader):
     for projection, label, length, (observation, _) in zip(projection_batch, label_batch, length_batch, observation_batch):
       for idx, word in enumerate(observation.sentence):
@@ -54,47 +57,44 @@ def evaluate_vectors(args, probe, dataset, model, results_dir, output_name):
         else:
           head_index = int(observation.head_indices[idx])
           proj_diff = projection[idx] - projection[head_index-1]
-          relations_to_projections[observation.governance_relations[idx]].append(proj_diff)
+          relation = observation.governance_relations[idx]
+          relations_to_projections[relation].append(proj_diff)
+          relations_to_sentences[relation].append(" ".join(observation.sentence))
+          relations_to_idxs[relation].append(idx)
+          relations_to_words[relation].append(word)
 
   relations_to_diffs = {}
   all_relations = []
+  all_sentences = []
+  all_idxs = []
+  all_words = []
   y_list = []
   for relation in relations_to_projections:
-    # print(relation, len(relations_to_projections[relation]))
-    #if len(relations_to_projections[relation]) > 100:
-    # print(relation)
     diffs = torch.FloatTensor(relations_to_projections[relation])
     # compute the SVD
     u, s, v = diffs.svd()
-      # print(s)
     average_diff = torch.mean(diffs, 0)
     relations_to_diffs[relation] = average_diff
     all_relations += relations_to_projections[relation]
+    all_sentences += relations_to_sentences[relation]
+    all_idxs += relations_to_idxs[relation]
+    all_words += relations_to_words[relation]
     y_list += [relation] * len(relations_to_projections[relation])
   allDiff = torch.FloatTensor(all_relations)
   # print(y_list)
+  sentences_idxs_words = np.array([all_sentences, all_idxs, all_words])
   if len(sys.argv) > 2:
     np.save('/sailhome/ethanchi/structural-probes/relationOutputs/{}.npy'.format(output_name), allDiff.numpy())
     np.save('/sailhome/ethanchi/structural-probes/relationOutputs/{}Y.npy'.format(output_name), np.array(y_list))
-
+    np.save('/sailhome/ethanchi/structural-probes/relationOutputs/{}-data.npy'.format(output_name), sentences_idxs_words)
   allDiff = torch.mean(allDiff, 0)
   cos = torch.nn.CosineSimilarity(dim=0, eps=1e-10)
-  for relation in relations_to_diffs:
+  # for relation in relations_to_diffs:
     # print(relation, torch.norm(relations_to_diffs[relation]))
     # for relation2 in relations_to_diffs:
         # print(relation, relation2, cos(relations_to_diffs[relation], relations_to_diffs[relation2]))
   # print("AllDiff", torch.norm(allDiff))
         # print("Projection is: {}".format(projection[int(observation.head_indices[idx])-1]))
-
-
-  #train_dataloader = dataset.get_train_dataloader(shuffle=False)
-  #train_predictions = regimen.predict(probe, model, train_dataloader)
-  #reporter(train_predictions, train_dataloader, 'train')
-
-  # Uncomment to run on the test set
-  #test_dataloader = dataset.get_test_dataloader()
-  #test_predictions = regimen.predict(probe, model, test_dataloader)
-  #reporter(test_predictions, test_dataloader, 'test')
 
 def execute_experiment(args, results_dir, output_name):
   """
