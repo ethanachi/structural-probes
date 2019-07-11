@@ -2,3 +2,5 @@
 tests/multiling/experiments/*
 tests/results
 tests/multiling/results
+tests/multiling/experiments
+tests/multiling/experimentResults
