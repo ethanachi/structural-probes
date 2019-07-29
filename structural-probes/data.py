@@ -24,12 +24,17 @@ class SimpleDataset:
 
   Attributes:
     args: the global yaml-derived experiment config dictionary
+    lines_to_skip: a list of 2-tuples [inclusive] of lines to omit, 1-indexed
   """
   def __init__(self, args, task, vocab={}):
     self.args = args
     self.batch_size = args['dataset']['batch_size']
     self.use_disk_embeddings = args['model']['use_disk']
     self.vocab = vocab
+    lines_to_skip = args['dataset']['corpus']['lines_to_skip'] if 'lines_to_skip' in args['dataset']['corpus'] else []
+
+    self.lines_to_skip = [range(x[0], x[1]+1) for x in lines_to_skip]
+    self.lines_to_skip = [i for sublist in self.lines_to_skip for i in sublist] # flattens
     self.observation_class = self.get_observation_class(self.args['dataset']['observation_fieldnames'])
     self.train_obs, self.dev_obs, self.test_obs = self.read_from_disk()
     self.train_dataset = ObservationIterator(self.train_obs, task)
@@ -52,9 +57,9 @@ class SimpleDataset:
         self.args['dataset']['corpus']['dev_path'])
     test_corpus_path = os.path.join(self.args['dataset']['corpus']['root'],
         self.args['dataset']['corpus']['test_path'])
-    train_observations = self.load_conll_dataset(train_corpus_path)
-    dev_observations = self.load_conll_dataset(dev_corpus_path)
-    test_observations = self.load_conll_dataset(test_corpus_path)
+    train_observations = self.load_conll_dataset(train_corpus_path, skip_lines=True)
+    dev_observations = self.load_conll_dataset(dev_corpus_path, skip_lines=False)
+    test_observations = self.load_conll_dataset(test_corpus_path, skip_lines=False)
 
     train_embeddings_path = os.path.join(self.args['dataset']['embeddings']['root'],
         self.args['dataset']['embeddings']['train_path'])
@@ -62,7 +67,7 @@ class SimpleDataset:
         self.args['dataset']['embeddings']['dev_path'])
     test_embeddings_path = os.path.join(self.args['dataset']['embeddings']['root'],
         self.args['dataset']['embeddings']['test_path'])
-    train_observations = self.optionally_add_embeddings(train_observations, train_embeddings_path)
+    train_observations = self.optionally_add_embeddings(train_observations, train_embeddings_path, skip_lines=True)
     dev_observations = self.optionally_add_embeddings(dev_observations, dev_embeddings_path)
     test_observations = self.optionally_add_embeddings(test_observations, test_embeddings_path)
     return train_observations, dev_observations, test_observations
@@ -83,7 +88,7 @@ class SimpleDataset:
     '''
     return namedtuple('Observation', fieldnames)
 
-  def generate_lines_for_sent(self, lines):
+  def generate_lines_for_sent(self, lines, skip_lines=False):
     '''Yields batches of lines describing a sentence in conllx.
 
     Args:
@@ -92,13 +97,21 @@ class SimpleDataset:
       a list of lines describing a single sentence in conllx.
     '''
     buf = []
-    for line in lines:
+    obvs_idx = 0
+    if skip_lines: self.obvs_to_skip = []
+    for index, line in enumerate(lines):
+      # if index
       if line.startswith('#'):
         continue
       if not line.strip():
         if buf:
-          yield buf
+          # print(index, self.lines_to_skip)
+          if skip_lines and index in self.lines_to_skip:
+            self.obvs_to_skip.append(obvs_idx)
+          else:
+            yield buf 
           buf = []
+          obvs_idx += 1
         else:
           continue
       else:
@@ -106,7 +119,7 @@ class SimpleDataset:
     if buf:
       yield buf
 
-  def load_conll_dataset(self, filepath):
+  def load_conll_dataset(self, filepath, skip_lines=False):
     '''Reads in a conllx file; generates Observation objects
     
     For each sentence in a conllx file, generates a single Observation
@@ -121,8 +134,8 @@ class SimpleDataset:
     observations = []
     lines = (x for x in open(filepath))
     fieldnamesIndex = self.args['dataset']['observation_fieldnames'].index('head_indices')
-    for buf in self.generate_lines_for_sent(lines):
-      # print(buf)
+    for buf in self.generate_lines_for_sent(lines, skip_lines):
+      # print("\n".join(buf))
       conllx_lines = []
       skip_count = 0
       for line in buf:
@@ -393,7 +406,7 @@ class BERTDataset(SubwordDataset):
     args: the global yaml-derived experiment config dictionary
   """
 
-  def generate_subword_embeddings_from_hdf5(self, observations, filepath, elmo_layer, subword_tokenizer=None):
+  def generate_subword_embeddings_from_hdf5(self, observations, filepath, elmo_layer, subword_tokenizer=None, skip_lines=False):
     '''Reads pre-computed subword embeddings from hdf5-formatted file.
 
     Sentences should be given integer keys corresponding to their order
@@ -446,8 +459,15 @@ class BERTDataset(SubwordDataset):
     indices = list(hf.keys())
     single_layer_features_list = []
     joiner = ' ' if 'use_no_spaces' in self.args['model'] and self.args['model']['use_no_spaces'] == True else ' '
+    # print("Observations to skip:", self.obvs_to_skip)
+    # for obvs_idx in sorted(self.obvs_to_skip, reverse=True):
+    #  del embeddings[obvs_idx]
+    offset = 0
     for index in tqdm(sorted([int(x) for x in indices]), desc='[aligning embeddings]'):
-      observation = observations[index]
+      if skip_lines and index in self.obvs_to_skip:
+        offset += 1
+        continue
+      observation = observations[index-offset]
       feature_stack = hf[str(index)]
       single_layer_features = feature_stack[elmo_layer]
       # print("Sentence being tokenized: " +  '[CLS] ' + joiner.join(observation.sentence) + ' [SEP]')
@@ -464,11 +484,11 @@ class BERTDataset(SubwordDataset):
       single_layer_features_list.append(single_layer_features)
     return single_layer_features_list
 
-  def optionally_add_embeddings(self, observations, pretrained_embeddings_path):
+  def optionally_add_embeddings(self, observations, pretrained_embeddings_path, skip_lines=False):
     """Adds pre-computed BERT embeddings from disk to Observations."""
     layer_index = self.args['model']['model_layer']
     print('Loading BERT Pretrained Embeddings from {}; using layer {}'.format(pretrained_embeddings_path, layer_index))
-    embeddings = self.generate_subword_embeddings_from_hdf5(observations, pretrained_embeddings_path, layer_index)
+    embeddings = self.generate_subword_embeddings_from_hdf5(observations, pretrained_embeddings_path, layer_index, skip_lines=skip_lines)
     observations = self.add_embeddings_to_observations(observations, embeddings)
     return observations
 
