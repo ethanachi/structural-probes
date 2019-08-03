@@ -8,6 +8,8 @@
 
 import re, itertools
 
+get_base_token = lambda x: "".join(c for c in x if not c.isdigit()) 
+
 def generateSentences(rule):
   tokens = re.findall("\{(.*?)\}", text)
   assert(len(set(tokens)) == len(tokens))  # checking for uniqueness
@@ -15,22 +17,23 @@ def generateSentences(rule):
   keywords = []
   
   for token in tokens:
-    token_base = "".join(c for c in token if not c.isdigit())
-    with open(f'/u/scr/ethanchi/embeddings/{sys.argv[1]}/{token_base}.txt') as token_file:
-      lines = [line.strip() for line in token_file if line != "\n"]
-      assert(len(lines) > 0)
-      if "/" in lines[0]:
-        ets = [zip(range(len(line.split('/'))), [line.split('/')]) for line in lines]
-        ets = [word for sublist in ets for word in sublist]
-        keywords[token] = ets
-      elif ":" in lines[0]:
-        ets = [x.split(':') for x in lines]
-      else:
-        ets = [(x,) for x in lines]
-  
+    token_base = get_base_token(token)
+    if token_base not in keywords:
+      with open(f'/u/scr/ethanchi/embeddings/{sys.argv[1]}/{token_base}.txt') as token_file:
+        lines = [line.strip() for line in token_file if line != "\n"]
+        assert(len(lines) > 0)
+        if "/" in lines[0]:
+          ets = [zip(range(len(line.split('/'))), [line.split('/')]) for line in lines]
+          ets = [word for sublist in ets for word in sublist]
+          keywords[token_base] = ets
+        elif ":" in lines[0]:
+          keywords[token_base] = [x.split(':') for x in lines]
+        else:
+          keywords[token_base] = [(x,) for x in lines]
+        
   swaps = []
   for token in tokens:
-      swaps.append([(token, destination) for destination in keywords[token]])
+      swaps.append([(token, destination) for destination in keywords[get_base_token(token)]])
     
   print(swaps)
 
