@@ -15,7 +15,7 @@ dataset:
     root: /u/scr/ethanchi/
     train_path: {srcLang}/train.conllu
     dev_path: {destLang}/dev.conllu
-    test_path: {destLang}/test.conllu
+    test_path: {destLang}/test.conllu {lines_to_skip}
   embeddings:
     type: token #(token,subword)
     root: /u/scr/ethanchi/

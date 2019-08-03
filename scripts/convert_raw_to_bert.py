@@ -15,6 +15,7 @@ from pytorch_pretrained_bert import BertTokenizer, BertModel, BertForMaskedLM, W
 from argparse import ArgumentParser
 import h5py
 import numpy as np
+from tqdm import tqdm
 
 argp = ArgumentParser()
 argp.add_argument('input_path')
@@ -50,7 +51,7 @@ else:
 model.eval()
 
 with h5py.File(args.output_path, 'w') as fout:
-  for index, line in enumerate(open(args.input_path)):
+  for index, line in tqdm(enumerate(open(args.input_path))):
     line = line.strip() # Remove trailing characters
     line = '[CLS] ' + line + ' [SEP]'
     

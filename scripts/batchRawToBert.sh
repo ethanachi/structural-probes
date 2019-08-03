@@ -1,6 +1,6 @@
 #!/bin/bash
 
-for type in multilingual
+for type in multilingual multirandom
 do
     for f in $1/*.txt
     do
