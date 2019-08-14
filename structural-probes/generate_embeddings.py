@@ -53,7 +53,7 @@ tokenizer = BertTokenizer.from_pretrained('bert-base-multilingual-cased')
 model = BertModel.from_pretrained('bert-base-multilingual-cased')
 LAYER_COUNT = 24
 FEATURE_COUNT = 1024
-MAX_SENTENCE_LENGTH = 25
+MAX_SENTENCE_LENGTH = 30
 model.to(args['device'])
 model.eval()
 
@@ -68,6 +68,7 @@ representations = []
 
 for index, line in tqdm(enumerate(sys.stdin), desc='[projecting]'):
   # Tokenize the sentence and create tensor inputs to BERT
+  line = line.split('\t')[0]
   untokenized_sent = line.strip().split()
   if len(untokenized_sent) > MAX_SENTENCE_LENGTH:
     raise(AssertionError)
@@ -88,11 +89,11 @@ for index, line in tqdm(enumerate(sys.stdin), desc='[projecting]'):
     encoded_layers, _ = model(tokens_tensor, segments_tensors)
     single_layer_features = encoded_layers[args['model']['model_layer']]
     representation = torch.stack([torch.mean(single_layer_features[0,untok_tok_mapping[i][0]:untok_tok_mapping[i][-1]+1,:], dim=0) for i in range(len(untokenized_sent))], dim=0)
+    representation = torch.nn.functional.pad(representation, (0, 0, 0, MAX_SENTENCE_LENGTH-representation.shape[0]), mode="constant", value=0)
     representations.append(representation.detach().cpu().numpy())
 
     # Run BERT token vectors through the trained probes
     projected = torch.matmul(representation, probe.proj)
-    projected = torch.nn.functional.pad(projected, (0, 0, 0, 25-projected.shape[0]), mode="constant", value=0)
     outputs.append(projected.detach().cpu().numpy())
     sentences.append(line)
     

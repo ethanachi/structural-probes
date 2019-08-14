@@ -43,6 +43,7 @@ def load_projected_representations(probe, model, dataset):
   projections_by_batch = []
   for batch in tqdm(dataset, desc='[predicting]'):
     observation_batch, label_batch, length_batch, _ = batch
+    print(observation_batch.shape)
     word_representations = model(observation_batch)
     transformed_representations = torch.matmul(word_representations, probe.proj)
     projections_by_batch.append(transformed_representations.detach().cpu().numpy())
@@ -88,10 +89,10 @@ def evaluate_vectors(args, probe, dataset, model, results_dir, output_name, use_
   all_pairs = np.array(all_pairs)
   sentences_idxs_words = np.array([all_sentences, all_idxs, all_words]).T
   all_diffs = np.array(all_diffs) 
-  np.save('/sailhome/ethanchi/structural-probes/relationOutputs/{}.npy'.format(output_name), all_diffs)
-  np.save('/sailhome/ethanchi/structural-probes/relationOutputs/{}-pairs.npy'.format(output_name), all_pairs)
-  np.save('/sailhome/ethanchi/structural-probes/relationOutputs/{}Y.npy'.format(output_name), all_labels)
-  np.save('/sailhome/ethanchi/structural-probes/relationOutputs/{}-data.npy'.format(output_name), sentences_idxs_words)
+  np.save('/u/scr/ethanchi/relationOutputs/{}.npy'.format(output_name), all_diffs)
+  np.save('/u/scr/ethanchi/relationOutputs/{}-pairs.npy'.format(output_name), all_pairs)
+  np.save('/u/scr/ethanchi/relationOutputs/{}Y.npy'.format(output_name), all_labels)
+  np.save('/u/scr/ethanchi/relationOutputs/{}-data.npy'.format(output_name), sentences_idxs_words)
   # write tsne
   if use_tsne:
     from sklearn.manifold import TSNE

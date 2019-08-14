@@ -67,20 +67,24 @@ def evaluate_vectors(args, probe, dataset, model, results_dir, output_name, use_
   all_pos = []
   all_pairs = []
   all_diffs = []
+  all_morph = []
+  all_representations = []
   i = 0
   for projection_batch, (data_batch, label_batch, length_batch, observation_batch) in zip(projections, dataloader):
-    for projection, label, length, (observation, _) in zip(projection_batch, label_batch, length_batch, observation_batch):
+    for projection, label, length, (observation, _), representation in zip(projection_batch, label_batch, length_batch, observation_batch, data_batch):
       for idx, word in enumerate(observation.sentence):
         all_projections.append(projection[idx])
         all_sentences.append(" ".join(observation.sentence))
         all_idxs.append(idx)
         all_words.append(word)
-        lang = [l for l in lang_mapping if i in lang_mapping[l]][0]
-        all_relations.append(lang + '-' + observation.governance_relations[idx])
-        all_pos.append(lang + '-' + observation.upos_sentence[idx])
+        all_relations.append(observation.governance_relations[idx])
+        all_pos.append(observation.upos_sentence[idx])
         head_index = int(observation.head_indices[idx])
         all_pairs.append((projection[idx], projection[head_index-1]))
         all_diffs.append(projection[idx] - projection[head_index-1])
+        all_morph.append(observation.morph[idx])
+        all_representations.append(representation[idx].detach().cpu().numpy())
+        # print(representation.shape)
       i += 1
 
   all_projections = np.array(all_projections)
@@ -88,6 +92,8 @@ def evaluate_vectors(args, probe, dataset, model, results_dir, output_name, use_
   all_diffs = np.array(all_diffs)
   all_pairs = np.array(all_pairs)
   all_pos = np.array(all_pos)
+  all_morph = np.array(all_morph)
+  all_representations = np.array(all_representations)
   extra = np.array([all_sentences, all_idxs, all_words]).T
   path = '/u/scr/ethanchi/relationOutputs/{}'.format(output_name)
   os.mkdir(path)
@@ -97,7 +103,8 @@ def evaluate_vectors(args, probe, dataset, model, results_dir, output_name, use_
   np.save(os.path.join(path, 'pos.npy'), all_pos)
   np.save(os.path.join(path, 'pairs.npy'), all_pairs)
   np.save(os.path.join(path, 'diffs.npy'), all_diffs)
-  
+  np.save(os.path.join(path, 'morph.npy'), all_morph)
+  np.save(os.path.join(path, 'representations.npy'), all_representations)
   # write tsne
   """if use_tsne:
     from sklearn.manifold import TSNE
