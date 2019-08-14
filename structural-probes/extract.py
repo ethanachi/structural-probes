@@ -1,4 +1,3 @@
-"""Loads configuration yaml and runs an experiment."""
 from argparse import ArgumentParser
 import os
 import glob
@@ -9,6 +8,9 @@ from tqdm import tqdm
 import torch
 import numpy as np
 from collections import defaultdict
+import getpass
+
+from sklearn.manifold import TSNE
 
 import data
 import model
@@ -23,7 +25,9 @@ import os
 
 from run_experiment import choose_dataset_class, choose_probe_class, choose_model_class
 
-lang_mapping = {
+USE_MULTILINGUAL = False
+
+LANG_MAPPING = {
   "ar": range(1 - 1, 909),
   "de": range(910 - 1, 1708),
   "en": range(1709 - 1, 3710),
@@ -35,21 +39,10 @@ lang_mapping = {
   "zh": range(9363 - 1, 9862)
 }
 
-
-
-def load_projected_representations(probe, model, dataset):
-  """
-  Loads projected representations under `probe` from `dataset`.
-  """
-  projections_by_batch = []
-  for batch in tqdm(dataset, desc='[predicting]'):
-    observation_batch, label_batch, length_batch, _ = batch
-    word_representations = model(observation_batch)
-    transformed_representations = torch.matmul(word_representations, probe.proj)
-    projections_by_batch.append(transformed_representations.detach().cpu().numpy())
-  return projections_by_batch
+def save_vector(path, name, arr):
+  np.save(os.path.join(path, name + '.npy'), arr)
   
-def evaluate_vectors(args, probe, dataset, model, results_dir, output_name, use_tsne):
+def write_data(args, probe, dataset, model, results_dir, output_path):
   probe_params_path = os.path.join(results_dir, args['probe']['params_path'])
   probe.load_state_dict(torch.load(probe_params_path))
   probe.eval()
@@ -57,88 +50,73 @@ def evaluate_vectors(args, probe, dataset, model, results_dir, output_name, use_
   
   dataloader = dataset.get_dev_dataloader()
   
-  projections = load_projected_representations(probe, model, dataloader)
-
-  all_projections = []
-  all_sentences = []
-  all_idxs = []
-  all_words = []
-  all_relations = []
-  all_pos = []
-  all_pairs = []
-  all_diffs = []
-  all_morph = []
-  all_representations = []
+  to_output = ["projections", "sentences", "idxs", "words", "relations", "pos", "pairs", "diffs", "morphs", "representations", "is_head"]
+  outputs = defaultdict(list)
+  
   i = 0
-  for projection_batch, (data_batch, label_batch, length_batch, observation_batch) in zip(projections, dataloader):
-    for projection, label, length, (observation, _), representation in zip(projection_batch, label_batch, length_batch, observation_batch, data_batch):
-      for idx, word in enumerate(observation.sentence):
-        all_projections.append(projection[idx])
-        all_sentences.append(" ".join(observation.sentence))
-        all_idxs.append(idx)
-        all_words.append(word)
-        all_relations.append(observation.governance_relations[idx])
-        all_pos.append(observation.upos_sentence[idx])
-        head_index = int(observation.head_indices[idx])
-        all_pairs.append((projection[idx], projection[head_index-1]))
-        all_diffs.append(projection[idx] - projection[head_index-1])
-        all_morph.append(observation.morph[idx])
-        all_representations.append(representation[idx].detach().cpu().numpy())
-        # print(representation.shape)
+  for data_batch, label_batch, length_batch, observation_batch in dataloader:
+    for label, length, (observation, _), representation in zip(label_batch, length_batch, observation_batch, data_batch):
+      representation = model(representation[:length])
+      projection = torch.matmul(representation, probe.proj).detach().cpu().numpy()
+      head_indices = [int(x) - 1 for x in observation.head_indices]
+      projection_heads = projection[head_indices] 
+      prefix = (LANG_MAPPING[i] + '-') if USE_MULTILINGUAL else ""
+      append_prefix = lambda x: [prefix + elem for elem in x]
+      to_add = {
+        "projections": projection,
+        "representations": representation.detach().cpu().numpy(),
+        "sentences": [" ".join(observation.sentence)] * int(length),
+        "idxs": range(representation.shape[0]),
+        "words": observation.sentence,
+        "relations": append_prefix(observation.governance_relations),
+        "pos": append_prefix(observation.upos_sentence),
+        "morphs": observation.morph,
+        "pairs": np.stack((projection, projection_heads)),
+        "diffs": np.array(projection) - np.array(projection_heads), 
+        "is_head": [(x == '0') for x in observation.head_indices]
+      }
+      for target in to_add:
+        outputs[target] += list(to_add[target])
       i += 1
+      
+    for output in outputs:
+      outputs[output] = np.array(outputs[output])
+      save_vector(output_path, output, outputs[output])
 
-  all_projections = np.array(all_projections)
-  all_relations = np.array(all_relations)
-  all_diffs = np.array(all_diffs)
-  all_pairs = np.array(all_pairs)
-  all_pos = np.array(all_pos)
-  all_morph = np.array(all_morph)
-  all_representations = np.array(all_representations)
-  extra = np.array([all_sentences, all_idxs, all_words]).T
-  path = '/u/scr/ethanchi/relationOutputs/{}'.format(output_name)
-  os.mkdir(path)
-  np.save(os.path.join(path, 'projections.npy'), all_projections)
-  np.save(os.path.join(path, 'data.npy'), extra)
-  np.save(os.path.join(path, 'relations.npy'), all_relations)
-  np.save(os.path.join(path, 'pos.npy'), all_pos)
-  np.save(os.path.join(path, 'pairs.npy'), all_pairs)
-  np.save(os.path.join(path, 'diffs.npy'), all_diffs)
-  np.save(os.path.join(path, 'morph.npy'), all_morph)
-  np.save(os.path.join(path, 'representations.npy'), all_representations)
-  # write tsne
-  """if use_tsne:
-    from sklearn.manifold import TSNE
-    tsne = TSNE(n_components=2, random_state=229, verbose=10)
-    print("Fitting TSNE.")
-    # we want to take uniformly distributed samples from each language category:
+  return outputs
+
+def perform_tsne(outputs, to_write, output_path, num_to_write=10000):
+  tsne = TSNE(n_components=2, random_state=229, verbose=10)
+  print("Fitting TSNE.")
+  
+  if USE_MULTILINGUAL:
+    # we sample uniformly per-language
     langs = lang_mapping.keys()
     langs_to_indices = {}
-    total_wanted = 100000
+    num_needed = num_to_write // len(langs)
     for lang in langs:
       selector = np.vectorize(lambda x: x.startswith(lang + '-'))
       indices_to_choose = np.where(selector(all_labels))[0]
-      num_needed = total_wanted // len(langs)
-      indices_needed = indices_to_choose[np.random.randint(low=0, high=indices_to_choose.shape[0], size=num_needed)]
+      indices_needed = indices_to_choose[np.random.choice(indices_to_choose.shape[0], num_needed, replace=False)]
       langs_to_indices[lang] = indices_needed
     indices = np.concatenate([langs_to_indices[lang] for lang in langs])
-    # indices = np.random.randint(low=0, high=all_diffs.shape[0], size=40000)
-    cut_diffs = all_diffs[indices]
-    all_labels = all_labels.reshape(-1, 1)
-    cut_labels = all_labels[indices]
-    all_pairs = all_pairs.reshape(-1, 1)
-    cut_pairs = cut_pairs[indices]
-    print(sentences_idxs_words.dtype)
-    cut_data = sentences_idxs_words[indices]
-    try:
-      projected = tsne.fit_transform(cut_diffs)
-    except KeyboardInterrupt:
-      pass
-    print("Fitted.")
-    print(cut_diffs.shape, cut_labels.shape, cut_data.shape)
-    tsv_out = np.concatenate((projected, cut_labels, cut_data), axis=1)
-    np.savetxt('/sailhome/ethanchi/structural-probes/relationOutputs/{}.tsv'.format(output_name), tsv_out, fmt="%s", header="x0\tx1\tlabel\tsentence\tidx\tword", comments="", delimiter="\t"
-    np.save('/sailhome/ethanchi/structural-probes/relationOutputs/{}-cut-pairs.npy'.format(output_name), cut_pairs)""" 
-    
+  else:
+    indices = np.random.choice(projections.shape[0], num_needed, replace=False)
+
+  cut_outputs = dict(((output_name, outputs[output_name][indices]) for output_name in to_write))
+  cut_diffs = outputs['diffs'][indices]
+
+  reduced = tsne.fit_transform(cut_diffs)
+  print("Fitted.")
+
+  tsv_out = np.stack((reduced, *cut_vectors.values()), axis=1)
+  for cut_output in cut_outputs:
+    save_vector(output_path, cut_output + '-cut', output_vector)
+  save_vector(output_path, 'reduced', reduced)
+
+  header = "x0\tx1\t" + "\t".join(cut_output)
+  np.savetxt(os.path.join(output_path, 'data.tsv'), tsv_out, fmt="%s", header=header, comments="", delimiter="\t")
+
 
 
 def execute_experiment(args, results_dir, output_name, use_tsne):
@@ -158,8 +136,9 @@ def execute_experiment(args, results_dir, output_name, use_tsne):
   expt_probe = probe_class(args)
   expt_model = model_class(args)
 
-  evaluate_vectors(args, expt_probe, expt_dataset, expt_model, results_dir, output_name, use_tsne)
-
+  outputs = write_data(args, expt_probe, expt_dataset, expt_model, results_dir, output_path, use_tsne)
+  if use_tsne: perform_tsne(outputs["projections"])
+  return outputs
 
 if __name__ == '__main__':
   argp = ArgumentParser()
@@ -168,6 +147,7 @@ if __name__ == '__main__':
   argp.add_argument('--seed', default=0, type=int,
       help='sets all random seeds for (within-machine) reproducibility')
   argp.add_argument('--tsne', dest="tsne", action="store_true")
+  
   cli_args = argp.parse_args()
   if cli_args.seed:
     np.random.seed(cli_args.seed)
@@ -175,10 +155,16 @@ if __name__ == '__main__':
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-  # yaml_args = yaml.load(open(#")
+  output_path = '/u/scr/{}/relationOutputs/{}'.format(getpass.getuser(), cli_args.output_name)
+  
+  try:
+    os.mkdir(output_path)
+  except FileExistsError:
+    print("Error: output directory {} already exists.".format(output_path))
+    raise
+
   os.chdir(cli_args.dir)
   yaml_args = yaml.load(open(glob.glob("*.yaml")[0]))
-  # setup_new_experiment_dir(cli_args, yaml_args, cli_args.results_dir)
   device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
   yaml_args['device'] = device
-  execute_experiment(yaml_args, cli_args.dir, cli_args.output_name, cli_args.tsne)
+  execute_experiment(yaml_args, cli_args.dir, output_path, cli_args.tsne)
