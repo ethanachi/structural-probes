@@ -157,3 +157,22 @@ class ParseDepthTask:
         return length
 
 
+class SemanticRoleTask:
+  """Maps observations to their semantic roles."""
+
+  @staticmethod
+  def labels(observation):
+    """Computes the depth of each word; returns them as a torch tensor.
+
+    Args:
+      observation: a single Observation class for a sentence:
+    Returns:
+      A torch tensor of shape (sentence_length, num_labels) of depths
+      in the parse tree as specified by the observation annotation.
+    """
+    SEMANTIC_LABELS = ["COM", "LOC", "DIR", "GOL", "MNR", "TMP", "EXT", "REC", "PRD", "PRP", "CAU", "DIS", "ADV", "ADJ", "MOD", "NEG", "DSP", "LVB", "CXN"]
+    sentence_length = len(observation[0])
+    batch_clean = lambda l: [elem.replace('AM-', '') for elem in l if elem.startswith('AM-')]
+    possible_labels = [batch_clean(observation[key]) for key in observation._asdict() if key.startswith("APRED")]
+    labels = [(SEMANTIC_LABELS.index(elem[0]) if len(elem) > 0 else -1) for elem in possible_labels]
+    return torch.Tensor(labels)

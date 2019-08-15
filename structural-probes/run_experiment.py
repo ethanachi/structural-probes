@@ -40,6 +40,14 @@ def choose_task_classes(args):
     else:
       raise ValueError("Unknown loss type for given probe type: {}".format(
         args['probe_training']['loss']))
+elif args['probe']['task_name'] == 'semantic-roles':
+    task_class = task.SemanticRolesTask
+    reporter_class = reporter.WordReporter
+    if args['probe_training']['loss'] == 'CrossEntropy':
+      loss_class = loss.CrossEntropyLoss
+    else:
+      raise ValueError("Unknown loss type for given probe type: {}".format(
+        args['probe_training']['loss']))
   else:
     raise ValueError("Unknown probing task type: {}".format(
       args['probe']['task_name']))
@@ -81,6 +89,11 @@ def choose_probe_class(args):
       return probe.TwoWordPSDProbe
     else:
       return probe.TwoWordNonPSDProbe
+elif args['probe']['task_signature'] == 'word_label':
+    if 'probe_spec' not in args['probe'] or args['probe']['probe_spec']['probe_hidden_layers'] == 0:
+      return probe.OneWordLinearLabelProbe
+    else:
+      return probe.OneWordNNLabelProbe
   else:
     raise ValueError("Unknown probe type (probe function signature): {}".format(
       args['probe']['task_signature']))
