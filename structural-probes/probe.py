@@ -151,3 +151,35 @@ class TwoWordNonPSDProbe(Probe):
     dists = torch.bmm(psd_transformed, diffs.view(batchlen*seqlen*seqlen, rank, 1))
     dists = dists.view(batchlen, seqlen, seqlen)
     return dists
+
+class OneWordNNLabelProbe(Probe):
+
+  def __init__(self, args):
+    print('Constructing OneWordNNLabelProbe')
+    super(OneWordNNLabelProbe, self).__init__()
+    self.args = args
+    self.model_dim = args['model']['hidden_dim']
+    self.label_space_size = args['probe']['label_space_size']
+    intermediate_size = args['probe']['maximum_rank']
+    self.initial_linear = nn.Linear(self.model_dim, intermediate_size)
+    self.intermediate_linears = nn.ModuleList()
+    for i in range(args['probe']['probe_spec']['probe_hidden_layers']-1):
+      self.intermediate_linears.append(nn.Linear(intermediate_size, intermediate_size))
+    self.last_linear = nn.Linear(intermediate_size, self.label_space_size)
+    self.to(args['device'])
+    self.print_param_count()
+    self.dropout = nn.Dropout(p=args['probe']['dropout'])
+    print('Applying dropout {}'.format(args['probe']['dropout']))
+    print('Using intermediate size (hidden dim / rank) {}'.format(intermediate_size))
+
+  def forward(self, batch):
+    batchlen, seqlen, dimension = batch.size()
+    batch = self.dropout(batch)
+    batch = self.initial_linear(batch)
+    batch = torch.relu(batch)
+    for linear in self.intermediate_linears:
+      batch = linear(batch)
+      batch = torch.relu(batch)
+      batch = self.dropout(batch)
+    batch = self.last_linear(batch)
+    return batch
