@@ -152,7 +152,7 @@ class TwoWordNonPSDProbe(Probe):
     dists = dists.view(batchlen, seqlen, seqlen)
     return dists
 
-cclass OneWordLinearLabelProbe(Probe):
+class OneWordLinearLabelProbe(Probe):
 
   def __init__(self, args):
     print('Constructing OneWordLinearLabelProbe')
