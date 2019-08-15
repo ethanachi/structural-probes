@@ -86,7 +86,7 @@ class SimpleDataset:
       A namedtuple class; each observation in the dataset will be an instance
       of this class.
     '''
-    return namedtuple('Observation', fieldnames)
+    return namedtuple('Observation', fieldnames, defaults=(None,) * len(fieldnames))
 
   def generate_lines_for_sent(self, lines, skip_lines=False):
     '''Yields batches of lines describing a sentence in conllx.
