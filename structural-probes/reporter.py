@@ -7,6 +7,7 @@ from tqdm import tqdm
 from scipy.stats import spearmanr, pearsonr
 import numpy as np 
 import json
+import sklearn.metrics
 
 import matplotlib as mpl
 mpl.use('Agg')
@@ -237,6 +238,9 @@ class WordReporter(Reporter):
         'root_acc':self.report_root_acc,
         'write_predictions':self.write_json,
         'image_examples':self.report_image_examples,
+        'label_accuracy':self.report_label_values,
+        'confusion_matrix': self.report_confusion_matrix,
+        'distributions': self.report_distributions
         }
     self.reporting_root = args['reporting']['root']
     self.test_reporting_constraint = {'spearmanr', 'uuas', 'root_acc'}
@@ -354,6 +358,75 @@ class WordReporter(Reporter):
         images_printed += 1
         if images_printed == 20:
           return
+
+  def report_label_values(self, prediction_batches, dataset, split_name):
+    total = 0
+    correct = 0
+    for prediction_batch, (data_batch, label_batch, length_batch, observation_batch) in zip(
+        prediction_batches, dataset):
+      for prediction, label, length, (observation, _) in zip(prediction_batch, label_batch, length_batch, observation_batch):
+        label = label[:length].cpu().numpy()
+        predictions = np.argmax(prediction[:length], axis=-1)
+        correct += np.sum(predictions[label != -1] == label[label != -1])
+        total += len(np.where(label != -1)[0]) 
+    with open(os.path.join(self.reporting_root, split_name + '.label_acc'), 'w') as fout:
+      fout.write(str(float(correct)/  total) + '\n')
+
+  def report_distributions(self, prediction_batches, dataset, split_name):
+    true_distribution = defaultdict(int)
+    predicted_distribution = defaultdict(int)
+    for prediction_batch, (data_batch, label_batch, length_batch, observation_batch) in zip(
+        prediction_batches, dataset):
+      for prediction, label, length, (observation, _) in zip(prediction_batch, label_batch, length_batch, observation_batch):
+        label = label[:length].cpu().numpy()
+        predictions = np.argmax(prediction[:length], axis=-1)
+        label, predictions = label[label != -1], predictions[label != -1]
+        SEMANTIC_LABELS = ["ADV", "CAU", "DIR", "DIS", "EXT", "LOC", "MNR", "MOD", "NEG", "PNC", "PRD", "PRT", "REC", "TMP"] 
+        for l in label: true_distribution[SEMANTIC_LABELS[int(l)]] += 1
+        for p in predictions: predicted_distribution[SEMANTIC_LABELS[int(p)]] += 1
+    with open(os.path.join(self.reporting_root, split_name + '.distribution'), 'w') as fout:
+      for l in SEMANTIC_LABELS:
+        fout.write(f"{l}\t{true_distribution[l]}\t{predicted_distribution[l]}\n")
+
+  def report_confusion_matrix(self, prediction_batches, dataset, split_name): 
+    confusion_matrix = np.zeros([14, 14])
+    for prediction_batch, (data_batch, label_batch, length_batch, observation_batch) in zip(
+        prediction_batches, dataset):
+      for prediction, label, length, (observation, _) in zip(prediction_batch, label_batch, length_batch, observation_batch):
+        label = label[:length].cpu().numpy()
+        predictions = np.argmax(prediction[:length], axis=-1)
+        if np.where(label != -1)[0].shape[0]:
+          confusion_matrix += sklearn.metrics.confusion_matrix(label[label != -1], predictions[label != -1], range(0, 14))
+
+
+    SEMANTIC_LABELS = ["ADV", "CAU", "DIR", "DIS", "EXT", "LOC", "MNR", "MOD", "NEG", "PNC", "PRD", "PRT", "REC", "TMP"] 
+    
+    ax = sns.heatmap(confusion_matrix, annot=True, annot_kws={"size": 5})
+    ax.set_title('Confusion Matrix')
+    ax.set_ylabel('True Label')
+    ax.set_xlabel('Predicted Label')
+    ax.set_xticks(np.arange(14))
+    ax.set_yticks(np.arange(14))
+    ax.set_xticklabels(SEMANTIC_LABELS, rotation=90, fontsize=6, ha='left')
+    ax.set_yticklabels(SEMANTIC_LABELS, rotation=0, fontsize=6, va='top')
+    plt.tight_layout()
+    plt.savefig(os.path.join(self.reporting_root, split_name + '-confusion.png'), dpi=300)
+
+    plt.clf()
+    ax = sns.heatmap(confusion_matrix / confusion_matrix.sum(axis=1)[:, np.newaxis], annot=True, annot_kws={"size": 5})
+    ax.set_title('Confusion Matrix')
+    ax.set_ylabel('True Label')
+    ax.set_xlabel('Predicted Label')
+    ax.set_xticks(np.arange(14))
+    ax.set_yticks(np.arange(14))
+    SEMANTIC_LABELS = ["ADV", "CAU", "DIR", "DIS", "EXT", "LOC", "MNR", "MOD", "NEG", "PNC", "PRD", "PRT", "REC", "TMP"] 
+    ax.set_xticklabels(SEMANTIC_LABELS, rotation=90, fontsize=6, ha='left')
+    ax.set_yticklabels(SEMANTIC_LABELS, rotation=0, fontsize=6, va='top')
+    plt.tight_layout()
+    plt.savefig(os.path.join(self.reporting_root, split_name + '-confusion-norm.png'), dpi=300)
+
+    print(confusion_matrix) 
+
 
 
 class UnionFind:

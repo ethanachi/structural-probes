@@ -2,6 +2,7 @@
 
 import numpy as np
 import torch
+import string
 
 class Task:
   """Abstract class representing a linguistic task mapping texts to labels."""
@@ -157,7 +158,7 @@ class ParseDepthTask:
         return length
 
 
-class SemanticRoleTask:
+class SemanticRolesTask:
   """Maps observations to their semantic roles."""
 
   @staticmethod
@@ -170,9 +171,29 @@ class SemanticRoleTask:
       A torch tensor of shape (sentence_length, num_labels) of depths
       in the parse tree as specified by the observation annotation.
     """
-    SEMANTIC_LABELS = ["COM", "LOC", "DIR", "GOL", "MNR", "TMP", "EXT", "REC", "PRD", "PRP", "CAU", "DIS", "ADV", "ADJ", "MOD", "NEG", "DSP", "LVB", "CXN"]
-    sentence_length = len(observation[0])
-    batch_clean = lambda l: [elem.replace('AM-', '') for elem in l if elem.startswith('AM-')]
-    possible_labels = [batch_clean(observation[key]) for key in observation._asdict() if key.startswith("APRED")]
-    labels = [(SEMANTIC_LABELS.index(elem[0]) if len(elem) > 0 else -1) for elem in possible_labels]
+    labels = [SemanticRolesTask.label_index(label) for label in observation.pred]
+    labels = torch.Tensor(labels)
+    return labels
+    
+
+
+    # batch_clean = lambda l: ([elem.replace('AM-', '') if elem.startswith('AM-') and elem.replace('AM-', '') in SEMANTIC_LABELS else '_' for elem in l])
+    # possible_labels = [batch_clean(getattr(observation, key)) for key in observation._asdict() if key.startswith("apred") and getattr(observation, key) and None not in getattr(observation, key)]
+    # possible_labels = zip(*possible_labels)
+    # possible_labels = [[subelem for subelem in elem if subelem != '_'] for elem in possible_labels]
+    # labels = [SEMANTIC_LABELS.index(elem[0]) if elem else -1 for elem in possible_labels]
     return torch.Tensor(labels)
+
+  @staticmethod
+  def label_index(label):
+    if label == None or "|" in label: return -1
+    label = label.lstrip(string.digits + ":")
+    SEMANTIC_LABELS = ["ADV", "CAU", "DIR", "DIS", "EXT", "LOC", "MNR", "MOD", "NEG", "PNC", "PRD", "PRT", "REC", "TMP"]
+    label = label.replace('AM-', '').replace('PBArgM_', '').replace('argM-', '').upper()
+    conversions = {
+        "FIN": "PNC",
+        "ATR": "PRD",
+    }
+    if label in conversions: label = conversions[label]
+    return SEMANTIC_LABELS.index(label) if label in SEMANTIC_LABELS else -1
+

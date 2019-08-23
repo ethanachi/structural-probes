@@ -165,6 +165,7 @@ class SimpleDataset:
           conllx_lines[index][0] = str(index + 1)
       # print(index_mappings)
       data = list(zip(*conllx_lines))
+
       # obs_test = self.observation_class(*data, embeddings)
       # print(obs_test)
 

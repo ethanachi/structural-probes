@@ -152,7 +152,7 @@ class TwoWordNonPSDProbe(Probe):
     dists = dists.view(batchlen, seqlen, seqlen)
     return dists
 
-cclass OneWordLinearLabelProbe(Probe):
+class OneWordLinearLabelProbe(Probe):
 
   def __init__(self, args):
     print('Constructing OneWordLinearLabelProbe')
@@ -164,14 +164,13 @@ cclass OneWordLinearLabelProbe(Probe):
     self.linear1 = nn.Linear(self.model_dim, self.maximum_rank)
     self.linear2 = nn.Linear(self.maximum_rank, self.label_space_size)
     self.to(args['device'])
-    self.print_param_count()
-    self.dropout = nn.Dropout(p=args['probe']['dropout'])
-    print('Applying dropout {}'.format(args['probe']['dropout']))
+    # self.dropout = nn.Dropout(p=args['probe']['dropout'])
+    # print('Applying dropout {}'.format(args['probe']['dropout']))
     print('Using intermediate size (hidden dim / rank) {}'.format(self.maximum_rank))
 
   def forward(self, batch):
     batchlen, seqlen, dimension = batch.size()
-    batch = self.dropout(batch)
+    # batch = self.dropout(batch)
     batch = self.linear1(batch)
     logits = self.linear2(batch)
     return logits

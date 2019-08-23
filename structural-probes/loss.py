@@ -2,6 +2,7 @@
 
 import torch
 import torch.nn as nn
+import tqdm
 
 class L1DistanceLoss(nn.Module):
   """Custom L1 loss for distance matrices."""
@@ -82,7 +83,7 @@ class CrossEntropyLoss(nn.Module):
 
   def __init__(self, args):
     super(CrossEntropyLoss, self).__init__()
-    tqdm.write('Constructing CrossEntropyLoss')
+    print('Constructing CrossEntropyLoss')
     self.args = args
     self.pytorch_ce_loss = torch.nn.CrossEntropyLoss(ignore_index=-1, reduction='sum')
 
