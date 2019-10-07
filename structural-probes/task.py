@@ -186,7 +186,10 @@ class SemanticRolesTask:
 
   @staticmethod
   def label_index(label):
-    if label == None or "|" in label: return -1
+    if label == None: return -1
+    if '|' in label:
+        label = "|".join(set(label.split("|")))
+    if '|' in label: return -1
     label = label.lstrip(string.digits + ":")
     SEMANTIC_LABELS = ["ADV", "CAU", "DIR", "DIS", "EXT", "LOC", "MNR", "MOD", "NEG", "PNC", "PRD", "PRT", "REC", "TMP"]
     label = label.replace('AM-', '').replace('PBArgM_', '').replace('argM-', '').upper()

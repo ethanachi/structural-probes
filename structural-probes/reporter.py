@@ -75,8 +75,9 @@ class WordPairReporter(Reporter):
         'spearmanr': self.report_spearmanr,
         'image_examples':self.report_image_examples,
         'uuas':self.report_uuas_and_tikz,
-        'write_predictions':self.write_json
-        }
+        'write_predictions':self.write_json,
+        'proj_acc': self.report_proj_nonproj_accuracy
+    }
     self.reporting_root = args['reporting']['root']
     self.test_reporting_constraint = {'spearmanr', 'uuas', 'root_acc'}
 
@@ -211,6 +212,73 @@ class WordPairReporter(Reporter):
     with open(os.path.join(self.reporting_root, split_name + '.uuas'), 'w') as fout:
       fout.write(str(uuas) + '\n')
 
+  def report_proj_nonproj_accuracy(self, prediction_batches, dataset, split_name):
+    """Computes the UUAS score for a dataset and writes tikz dependency latex.
+
+    From the true and predicted distances, computes a minimum spanning tree
+    of each, and computes the percentage overlap between edges in all
+    predicted and gold trees.
+
+    For the first 20 examples (if not the test set) also writes LaTeX to disk
+    for visualizing the gold and predicted minimum spanning trees.
+
+    All tokens with punctuation part-of-speech are excluded from the minimum
+    spanning trees.
+
+    Args:
+      prediction_batches: A sequence of batches of predictions for a data split
+      dataset: A sequence of batches of Observations
+      split_name the string naming the data split: {train,dev,test}
+    """
+    uspan_total = 0
+    uspan_correct = 0 
+    for prediction_batch, (data_batch, label_batch, length_batch, observation_batch) in tqdm(zip(
+        prediction_batches, dataset), desc='[uuas,tikz]'):
+      for prediction, label, length, (observation, _) in zip(
+          prediction_batch, label_batch,
+          length_batch, observation_batch):
+        words = observation.sentence
+        poses = observation.upos_sentence
+        length = int(length)
+        assert length == len(observation.sentence)
+        prediction = prediction[:length,:length]
+        label = label[:length,:length].cpu()
+
+        ## calculate which are projective and which are non-projective
+        head_indices = [int(x) for x in observation.head_indices]
+        # print(head_indices)
+        is_proj = np.zeros([length])
+
+        def is_projective(dep):
+            head = head_indices[dep]-1
+            # print("dep", dep, words[dep])
+            # print("head", head, words[head])
+            for i in range(min(dep, head) + 1, max(dep, head)):
+                # print(" examining", words[i])
+                curr = head_indices[i]
+                # print(curr, words[curr-1])
+                while curr != 0 and curr != head + 1: 
+                    curr = head_indices[curr-1]
+                    # print(curr, words[curr-1])
+                if head != -1 and curr == 0: 
+                    # print("nonproj")
+                    # print()
+                    return False
+            # print("proj")
+            return True
+
+        is_proj = [is_projective(dep) for dep in range(length)]
+
+        for word, val in [kv for kv in zip(words, is_proj)]:
+            if not val: print("**", end="")
+            print(word, end="")
+            if not val: print("**", end="")
+            print(" ", end="")
+        print()
+
+
+
+       
   def print_tikz(self, prediction_edges, gold_edges, words, split_name):
     ''' Turns edge sets on word (nodes) into tikz dependency LaTeX. '''
     with open(os.path.join(self.reporting_root, split_name+'.tikz'), 'a') as fout:
@@ -240,7 +308,8 @@ class WordReporter(Reporter):
         'image_examples':self.report_image_examples,
         'label_accuracy':self.report_label_values,
         'confusion_matrix': self.report_confusion_matrix,
-        'distributions': self.report_distributions
+        'distributions': self.report_distributions,
+        'confusion_examples': self.report_confusion_examples
         }
     self.reporting_root = args['reporting']['root']
     self.test_reporting_constraint = {'spearmanr', 'uuas', 'root_acc'}
@@ -398,7 +467,6 @@ class WordReporter(Reporter):
         if np.where(label != -1)[0].shape[0]:
           confusion_matrix += sklearn.metrics.confusion_matrix(label[label != -1], predictions[label != -1], range(0, 14))
 
-
     SEMANTIC_LABELS = ["ADV", "CAU", "DIR", "DIS", "EXT", "LOC", "MNR", "MOD", "NEG", "PNC", "PRD", "PRT", "REC", "TMP"] 
     
     ax = sns.heatmap(confusion_matrix, annot=True, annot_kws={"size": 5})
@@ -427,7 +495,27 @@ class WordReporter(Reporter):
 
     print(confusion_matrix) 
 
+  def report_confusion_examples(self, prediction_batches, dataset, split_name):
+    confusion_examples = defaultdict(list)
 
+    SEMANTIC_LABELS = ["ADV", "CAU", "DIR", "DIS", "EXT", "LOC", "MNR", "MOD", "NEG", "PNC", "PRD", "PRT", "REC", "TMP"]
+    for prediction_batch, (data_batch, label_batch, length_batch, observation_batch) in zip(
+        prediction_batches, dataset):
+      for prediction, label, length, (observation, _) in zip(prediction_batch, label_batch, length_batch, observation_batch):
+        label = label[:length].cpu().numpy()
+        predictions = np.argmax(prediction[:length], axis=-1)[label != -1]
+        label = label[label != -1]
+        for true_label, predicted_label, index in zip(label, predictions, observation.index):
+          index = int(index)
+          confusion_examples[SEMANTIC_LABELS[int(true_label)] + '-' + SEMANTIC_LABELS[int(predicted_label)]].append((" ".join(observation.sentence), observation.sentence[index], index))
+    example_path = os.path.join(self.reporting_root, split_name + '_examples')
+    if not os.path.exists(example_path): os.mkdir(example_path)
+    for pair in confusion_examples:
+      with open(os.path.join(example_path, pair + '.examples'), 'w') as fout:
+       print(confusion_examples[pair])
+       fout.write('\n'.join('\t'.join([str(y) for y in x]) for x in confusion_examples[pair]))
+
+  
 
 class UnionFind:
   '''

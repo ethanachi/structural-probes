@@ -8,6 +8,7 @@ from tqdm import tqdm
 import torch
 import numpy as np
 from collections import defaultdict
+import h5py
 import getpass
 
 from sklearn.manifold import TSNE
@@ -46,42 +47,51 @@ def write_data(args, probe, dataset, model, results_dir, output_path):
   probe_params_path = os.path.join(results_dir, args['probe']['params_path'])
   probe.load_state_dict(torch.load(probe_params_path))
   probe.eval()
-  print(probe.proj)
-  
-  dataloader = dataset.get_dev_dataloader()
-  
-  to_output = ["projections", "sentences", "idxs", "words", "relations", "pos", "pairs", "diffs", "morphs", "representations", "is_head"]
-  outputs = defaultdict(list)
-  
-  i = 0
-  for data_batch, label_batch, length_batch, observation_batch in dataloader:
-    for label, length, (observation, _), representation in zip(label_batch, length_batch, observation_batch, data_batch):
-      representation = model(representation[:length])
-      projection = torch.matmul(representation, probe.proj).detach().cpu().numpy()
-      head_indices = [int(x) - 1 for x in observation.head_indices]
-      projection_heads = projection[head_indices] 
-      prefix = (LANG_MAPPING[i] + '-') if USE_MULTILINGUAL else ""
-      append_prefix = lambda x: [prefix + elem for elem in x]
-      to_add = {
-        "projections": projection,
-        "representations": representation.detach().cpu().numpy(),
-        "sentences": [" ".join(observation.sentence)] * int(length),
-        "idxs": range(representation.shape[0]),
-        "words": observation.sentence,
-        "relations": append_prefix(observation.governance_relations),
-        "pos": append_prefix(observation.upos_sentence),
-        "morphs": observation.morph,
-        "pairs": np.stack((projection, projection_heads)),
-        "diffs": np.array(projection) - np.array(projection_heads), 
-        "is_head": [(x == '0') for x in observation.head_indices]
-      }
-      for target in to_add:
-        outputs[target] += list(to_add[target])
-      i += 1
-      
+
+
+  for dataloader, split_name in zip((dataset.get_train_dataloader(), dataset.get_dev_dataloader()), ("train", "dev")):
+    
+    to_output = ["projections", "sentences", "idxs", "words", "relations", "pos", "pairs", "diffs", "morphs", "representations", "is_head"]
+    outputs = defaultdict(list)
+    
+    i = 0
+    for data_batch, label_batch, length_batch, observation_batch in dataloader:
+      for label, length, (observation, _), representation in zip(label_batch, length_batch, observation_batch, data_batch):
+        representation = model(representation[:length])
+        proj_matrix = probe.proj if hasattr(probe, 'proj') else probe.linear1.weight.data.transpose(0, 1)
+        projection = torch.matmul(representation, proj_matrix).detach().cpu().numpy()
+        head_indices = [int(x) - 1 for x in observation.head_indices]
+        projection_heads = projection[head_indices] 
+        prefix = (LANG_MAPPING[i] + '-') if USE_MULTILINGUAL else ""
+        append_prefix = lambda x: [prefix + elem for elem in x]
+        to_add = {
+          "projections": projection,
+          "sentences": [" ".join(observation.sentence)] * int(length),
+          "idxs": range(representation.shape[0]),
+          "words": observation.sentence,
+          "relations": append_prefix(observation.governance_relations),
+          "pos": append_prefix((observation.upos_sentence if hasattr(observation, 'upos_sentence') else observation.pos)),
+          "pairs": np.stack((projection, projection_heads)),
+          "diffs": np.array(projection) - np.array(projection_heads), 
+          "is_head": [(x == '0') for x in observation.head_indices],
+          "labels": label[:length].detach().cpu().numpy() 
+        }
+        if split_name == "": to_add['representations'] = representation.detach().cpu().numpy(),
+        if hasattr(observation, 'morph'): to_add['morphs'] = observation.morph
+        if hasattr(observation, 'pred'): to_add['pred'] = observation.pred
+        if hasattr(probe, 'linear1'): to_add['logits'] = probe(representation.unsqueeze(0)).detach().cpu().numpy().squeeze(axis=0)
+        for target in to_add:
+          outputs[target] += list(to_add[target])
+        i += 1
+    
     for output in outputs:
-      outputs[output] = np.array(outputs[output])
-      save_vector(output_path, output, outputs[output])
+      if output in ('representations', 'projections', 'logits'):
+        hf = h5py.File(os.path.join(output_path, split_name + '-' + output + '.hdf5'), 'w')
+        hf.create_dataset(output, data=np.array(outputs[output]), compression="gzip")
+        hf.close()
+      else:
+        outputs[output] = np.array(outputs[output])
+        save_vector(output_path, split_name + '-' + output, outputs[output])
 
   return outputs
 
@@ -132,11 +142,11 @@ def execute_experiment(args, results_dir, output_name, use_tsne):
   probe_class = choose_probe_class(args)
   model_class = choose_model_class(args)
 
-  expt_dataset = dataset_class(args, task.DummyTask)
+  expt_dataset = dataset_class(args, task.SemanticRolesTask)
   expt_probe = probe_class(args)
   expt_model = model_class(args)
 
-  outputs = write_data(args, expt_probe, expt_dataset, expt_model, results_dir, output_path, use_tsne)
+  outputs = write_data(args, expt_probe, expt_dataset, expt_model, results_dir, output_path)
   if use_tsne: perform_tsne(outputs["projections"])
   return outputs
 
@@ -160,8 +170,8 @@ if __name__ == '__main__':
   try:
     os.mkdir(output_path)
   except FileExistsError:
-    print("Error: output directory {} already exists.".format(output_path))
-    raise
+    # print("Error: output directory {} already exists.".format(output_path))
+    pass
 
   os.chdir(cli_args.dir)
   yaml_args = yaml.load(open(glob.glob("*.yaml")[0]))
