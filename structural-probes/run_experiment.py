@@ -148,11 +148,16 @@ def run_report_results(args, probe, dataset, model, loss, reporter, regimen):
   Requires a simple code change to run on the test set.
   """
   probe_params_path = os.path.join(args['reporting']['root'],args['probe']['params_path'])
-  probe.load_state_dict(torch.load(probe_params_path))
-  probe.eval()
+
+  try:
+    probe.load_state_dict(torch.load(probe_params_path))
+    probe.eval()
+    dev_predictions = regimen.predict(probe, model, dev_dataloader)
+  except FileNotFoundError:
+    print("No trained probe found.")
+    dev_predictions = None
 
   dev_dataloader = dataset.get_dev_dataloader()
-  dev_predictions = regimen.predict(probe, model, dev_dataloader)
   reporter(dev_predictions, dev_dataloader, 'dev')
 
   #train_dataloader = dataset.get_train_dataloader(shuffle=False)
@@ -248,7 +253,7 @@ if __name__ == '__main__':
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-  yaml_args= yaml.load(open(cli_args.experiment_config))
+  yaml_args = yaml.load(open(cli_args.experiment_config))
   setup_new_experiment_dir(cli_args, yaml_args, cli_args.results_dir)
   device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
   yaml_args['device'] = device

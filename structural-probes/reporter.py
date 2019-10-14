@@ -51,6 +51,57 @@ class Reporter:
             , dataloader, split_name)
       else:
         tqdm.write('[WARNING] Reporting method not known: {}; skipping'.format(method))
+        
+
+  def write_data(self, prediction_batches, dataset, split_name):
+    probe_params_path = os.path.join(results_dir, args['probe']['params_path'])
+    probe.load_state_dict(torch.load(probe_params_path))
+    probe.eval()
+    
+    to_output = ["projections", "sentences", "idxs", "words", "relations", "pos", "pairs", "diffs", "morphs", "representations", "is_head"]
+    outputs = defaultdict(list)
+    
+    i = 0
+    for data_batch, label_batch, length_batch, observation_batch in dataset:
+      for label, length, (observation, _), representation in zip(label_batch, length_batch, observation_batch, data_batch):
+        representation = model(representation[:length])
+        proj_matrix = probe.proj if hasattr(probe, 'proj') else probe.linear1.weight.data.transpose(0, 1)
+        projection = torch.matmul(representation, proj_matrix).detach().cpu().numpy()
+        head_indices = [int(x) - 1 for x in observation.head_indices]
+        projection_heads = projection[head_indices] 
+        prefix = (LANG_MAPPING[i] + '-') if USE_MULTILINGUAL else ""
+        append_prefix = lambda x: [prefix + elem for elem in x]
+        to_add = {
+          "projections": projection,
+          "sentences": [" ".join(observation.sentence)] * int(length),
+          "idxs": range(representation.shape[0]),
+          "words": observation.sentence,
+          "relations": append_prefix(observation.governance_relations),
+          "pos": append_prefix((observation.upos_sentence if hasattr(observation, 'upos_sentence') else observation.pos)),
+          "pairs": np.stack((projection, projection_heads)),
+          "diffs": np.array(projection) - np.array(projection_heads), 
+          "is_head": [(x == '0') for x in observation.head_indices],
+        }
+        if split_name == "": to_add['representations'] = representation.detach().cpu().numpy(),
+        if hasattr(observation, 'morph'): to_add['morphs'] = observation.morph
+        if hasattr(observation, 'pred'): to_add['pred'] = observation.pred
+        if hasattr(probe, 'linear1'): to_add['logits'] = probe(representation.unsqueeze(0)).detach().cpu().numpy().squeeze(axis=0)
+        for target in to_add:
+          outputs[target] += list(to_add[target])
+        i += 1
+    
+    for output, values in outputs.items():
+      print("Writing", output, "to disk")
+      if output in ('representations', 'projections', 'logits', 'diffs'):
+        hf = h5py.File(os.path.join(output_path, split_name + '-' + output + '.hdf5'), 'w')
+        hf.create_dataset(output, data=np.array(values), compression="gzip")
+        hf.close()
+      else: 
+        with open(os.path.join(self.reporting_root, split_name + '-' + output + '.txt'), 'w') as fout:
+          fout.write("\n".join(str(item) for item in values))
+    
+    return outputs
+
 
   def write_json(self, prediction_batches, dataset, split_name):
     """Writes observations and predictions to disk.
@@ -76,7 +127,8 @@ class WordPairReporter(Reporter):
         'image_examples':self.report_image_examples,
         'uuas':self.report_uuas_and_tikz,
         'write_predictions':self.write_json,
-        'proj_acc': self.report_proj_nonproj_accuracy
+        'proj_acc': self.report_proj_nonproj_accuracy,
+        'adj_acc': self.report_adj_accuracy
     }
     self.reporting_root = args['reporting']['root']
     self.test_reporting_constraint = {'spearmanr', 'uuas', 'root_acc'}
@@ -232,8 +284,12 @@ class WordPairReporter(Reporter):
     """
     uspan_total = 0
     uspan_correct = 0 
+    total_nonproj_deps = 0
+    total_proj_deps = 0
+    correct_nonproj_deps = 0
+    correct_proj_deps = 0
     for prediction_batch, (data_batch, label_batch, length_batch, observation_batch) in tqdm(zip(
-        prediction_batches, dataset), desc='[uuas,tikz]'):
+        prediction_batches, dataset), desc='[proj]'):
       for prediction, label, length, (observation, _) in zip(
           prediction_batch, label_batch,
           length_batch, observation_batch):
@@ -268,17 +324,127 @@ class WordPairReporter(Reporter):
             return True
 
         is_proj = [is_projective(dep) for dep in range(length)]
+    
+        gold_edges = prims_matrix_to_edges(label, words, poses)
+        pred_edges = prims_matrix_to_edges(prediction, words, poses)
 
-        for word, val in [kv for kv in zip(words, is_proj)]:
-            if not val: print("**", end="")
-            print(word, end="")
-            if not val: print("**", end="")
-            print(" ", end="")
-        print()
+        pairs = 0
+
+        out_debug_pairs = [] 
+
+        for idx, head_idx in enumerate(head_indices):
+            if head_idx == 0: continue
+            if poses[idx] in ["''", ",", ".", ":", "``", "-LRB-", "-RRB-", "PUNCT"]: continue
+            head_idx -= 1
+            out_debug_pairs.append(tuple(sorted([idx, head_idx]))) 
+            if is_projective(idx):
+                total_proj_deps += 1
+                pairs += 1
+                correct_proj_deps += (tuple(sorted([idx, head_idx])) in pred_edges)
+            else:
+                total_nonproj_deps += 1
+                pairs += 1
+                correct_nonproj_deps += (tuple(sorted([idx, head_idx])) in pred_edges)
+
+        # print(pairs)
+        out_debug_pairs = sorted(out_debug_pairs)
+        # print(out_debug_pairs)
+        assert gold_edges == out_debug_pairs
+        # for word, val in [kv for kv in zip(words, is_proj)]:
+            # if not val: print("**", end="")
+            # print(word, end="")
+            # if not val: print("**", end="")
+            # print(" ", end="")
+        # print()
+        # print()
+
+    correct_deps = correct_proj_deps + correct_nonproj_deps
+    total_deps = total_proj_deps + total_nonproj_deps
+
+    with open(os.path.join(self.reporting_root, split_name+'-nonproj.info'), 'w') as fout:
+        fout.write(f"Proj: {correct_proj_deps}\n{total_proj_deps}\n{correct_proj_deps/total_proj_deps}\n") 
+        if total_nonproj_deps != 0:
+            fout.write(f"Nonproj: {correct_nonproj_deps}\n{total_nonproj_deps}\n{correct_nonproj_deps/total_nonproj_deps}\n") 
+        fout.write(f"Total: {correct_deps}\n{total_deps}\n{correct_deps/total_deps}\n") 
+
+    with open(os.path.join(self.reporting_root, split_name+'-nonproj.acc'), 'w') as fout:
+        if total_nonproj_deps != 0:
+            fout.write(f"{correct_nonproj_deps}\n{total_nonproj_deps}\n{correct_nonproj_deps/total_nonproj_deps}") 
+
+  def print_tikz(self, prediction_edges, gold_edges, words, split_name):
+    ''' Turns edge sets on word (nodes) into tikz dependency LaTeX. '''
+    with open(os.path.join(self.reporting_root, split_name+'.tikz'), 'a') as fout:
+      string = """\\begin{dependency}[hide label, edge unit distance=.5ex]
+    \\begin{deptext}[column sep=0.05cm]
+    """ 
+      string += "\\& ".join([x.replace('$', '\$').replace('&', '+') for x in words]) + " \\\\" + '\n'
+      string += "\\end{deptext}" + '\n'
+      for i_index, j_index in gold_edges:
+        string += '\\depedge{{{}}}{{{}}}{{{}}}\n'.format(i_index+1,j_index+1, '.')
+      for i_index, j_index in prediction_edges:
+        string += '\\depedge[edge style={{red!60!}}, edge below]{{{}}}{{{}}}{{{}}}\n'.format(i_index+1,j_index+1, '.')
+      string += '\\end{dependency}\n'
+      fout.write('\n\n')
+      fout.write(string)
 
 
+  def report_adj_accuracy(self, prediction_batches, dataset, split_name):
+    """Computes the UUAS score for a dataset and writes tikz dependency latex.
 
-       
+    From the true and predicted distances, computes a minimum spanning tree
+    of each, and computes the percentage overlap between edges in all
+    predicted and gold trees.
+
+    For the first 20 examples (if not the test set) also writes LaTeX to disk
+    for visualizing the gold and predicted minimum spanning trees.
+
+    All tokens with punctuation part-of-speech are excluded from the minimum
+    spanning trees.
+
+    Args:
+      prediction_batches: A sequence of batches of predictions for a data split
+      dataset: A sequence of batches of Observations
+      split_name the string naming the data split: {train,dev,test}
+    """
+    total_pre_adj = 0
+    correct_pre_adj = 0
+    total_post_adj = 0
+    correct_post_adj = 0
+    for prediction_batch, (data_batch, label_batch, length_batch, observation_batch) in tqdm(zip(
+        prediction_batches, dataset), desc='[mod]'):
+      for prediction, label, length, (observation, _) in zip(
+          prediction_batch, label_batch,
+          length_batch, observation_batch):
+        words = observation.sentence
+        poses = observation.upos_sentence
+        length = int(length)
+        assert length == len(observation.sentence)
+        prediction = prediction[:length,:length]
+        label = label[:length,:length].cpu()
+
+        head_indices = [int(x)-1 for x in observation.head_indices]
+        is_proj = np.zeros([length])
+
+    
+        gold_edges = prims_matrix_to_edges(label, words, poses)
+        pred_edges = prims_matrix_to_edges(prediction, words, poses)
+
+        pairs = 0
+
+        for idx, head_idx in enumerate(head_indices):
+            if head_idx == -1: continue
+            if poses[idx] == 'ADJ':
+                if head_idx < idx:
+                    total_pre_adj += 1
+                    correct_pre_adj += (tuple(sorted([idx, head_idx])) in pred_edges)
+                else:
+                    total_post_adj += 1
+                    correct_post_adj += (tuple(sorted([idx, head_idx])) in pred_edges)
+
+    with open(os.path.join(self.reporting_root, split_name+'-adj.info'), 'w') as fout:
+        fout.write(f"Pre: ({correct_pre_adj}/{total_pre_adj})\t{correct_pre_adj/total_pre_adj}\n") 
+        fout.write(f"Post: ({correct_post_adj}\n{total_post_adj})\t{correct_post_adj/total_post_adj}\n")
+
   def print_tikz(self, prediction_edges, gold_edges, words, split_name):
     ''' Turns edge sets on word (nodes) into tikz dependency LaTeX. '''
     with open(os.path.join(self.reporting_root, split_name+'.tikz'), 'a') as fout:
