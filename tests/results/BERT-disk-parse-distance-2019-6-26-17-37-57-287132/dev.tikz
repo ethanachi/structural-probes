@@ -1,5 +1,19 @@
 
+\documentclass{article}
+\usepackage{tikz-dependency}
+\usepackage{tikz}
 
+\pgfkeys{%
+/depgraph/reserved/edge style/.style = {% 
+white, -, >=stealth, % arrow properties                                                                            
+black, solid, line cap=round, % line properties
+rounded corners=2, % make corners round
+},%
+}
+\begin{document}
+\begin{figure}
+  \centering
+  \small
 \begin{dependency}[hide label, edge unit distance=.5ex]
     \begin{deptext}[column sep=0.05cm]
     Aviator\& ,\& un\& film\& sur\& la\& vie\& de\& Hughes\& . \\
@@ -1030,3 +1044,5 @@
 \depedge[edge style={red!60!}, edge below]{23}{24}{.}
 \depedge[edge style={red!60!}, edge below]{22}{32}{.}
 \end{dependency}
+\end{figure}
+\end{document}
