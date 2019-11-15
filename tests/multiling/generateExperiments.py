@@ -1,4 +1,4 @@
-LANGS = {'en', 'fr', 'zh', 'es', 'de', 'fi', 'ar', 'fa', 'id'}
+LANGS = {'en', 'fr', 'zh', 'es', 'de', 'fi', 'ar', 'fa', 'id', 'cz'}
 
 LANGS_WITH_SMALL = LANGS.copy()
 for lang in LANGS: LANGS_WITH_SMALL.add('sm' + lang); # LANGS_WITH_SMALL.add('holdout_' + lang)

@@ -8,6 +8,8 @@ from scipy.stats import spearmanr, pearsonr
 import numpy as np 
 import json
 import sklearn.metrics
+import torch
+import h5py
 
 import matplotlib as mpl
 mpl.use('Agg')
@@ -16,6 +18,19 @@ import seaborn as sns
 sns.set(style="darkgrid")
 mpl.rcParams['agg.path.chunksize'] = 10000
 
+USE_MULTILINGUAL = False
+
+LANG_MAPPING = {
+  "ar": range(1 - 1, 909),
+  "de": range(910 - 1, 1708),
+  "en": range(1709 - 1, 3710),
+  "es": range(3711 - 1, 5364),
+  "fa": range(5365 - 1, 5963),
+  "fi": range(5964 - 1, 7327),
+  "fr": range(7328 - 1, 8803),
+  "id": range(8804 - 1, 9362),
+  "zh": range(9363 - 1, 9862)
+}
 class Reporter:
   """Base class for reporting.
 
@@ -28,7 +43,7 @@ class Reporter:
   def __init__(self, args):
     raise NotImplementedError("Inherit from this class and override __init__")
 
-  def __call__(self, prediction_batches, dataloader, split_name):
+  def __call__(self, prediction_batches, probe, model, dataloader, split_name):
     """
     Performs all reporting methods as specifed in the yaml experiment config dict.
     
@@ -40,6 +55,8 @@ class Reporter:
       dataloader: A DataLoader for a data split
       split_name the string naming the data split: {train,dev,test}
     """
+    self.probe = probe
+    self.model = model
     for method in self.reporting_methods:
       if method in self.reporting_method_dict:
         if split_name == 'test' and method not in self.test_reporting_constraint:
@@ -54,9 +71,17 @@ class Reporter:
         
 
   def write_data(self, prediction_batches, dataset, split_name):
-    probe_params_path = os.path.join(results_dir, args['probe']['params_path'])
-    probe.load_state_dict(torch.load(probe_params_path))
-    probe.eval()
+    output_path = os.path.join(self.reporting_root, 'data')
+    if not os.path.exists(output_path):
+      os.mkdir(output_path)
+
+    
+    probe_params_path = os.path.join(self.reporting_root, self.args['probe']['params_path'])
+    didTrain = (os.path.exists(probe_params_path))
+
+    if didTrain:
+        self.probe.load_state_dict(torch.load(probe_params_path))
+        self.probe.eval()
     
     to_output = ["projections", "sentences", "idxs", "words", "relations", "pos", "pairs", "diffs", "morphs", "representations", "is_head"]
     outputs = defaultdict(list)
@@ -64,28 +89,33 @@ class Reporter:
     i = 0
     for data_batch, label_batch, length_batch, observation_batch in dataset:
       for label, length, (observation, _), representation in zip(label_batch, length_batch, observation_batch, data_batch):
-        representation = model(representation[:length])
-        proj_matrix = probe.proj if hasattr(probe, 'proj') else probe.linear1.weight.data.transpose(0, 1)
-        projection = torch.matmul(representation, proj_matrix).detach().cpu().numpy()
+        representation = self.model(representation[:length])
         head_indices = [int(x) - 1 for x in observation.head_indices]
-        projection_heads = projection[head_indices] 
+
+        if didTrain:
+            proj_matrix = self.probe.proj if hasattr(self.probe, 'proj') else self.probe.linear1.weight.data.transpose(0, 1)
+            projection = torch.matmul(representation, proj_matrix).detach().cpu().numpy()
+            projection_heads = projection[head_indices] 
+
         prefix = (LANG_MAPPING[i] + '-') if USE_MULTILINGUAL else ""
         append_prefix = lambda x: [prefix + elem for elem in x]
         to_add = {
-          "projections": projection,
+          "representations": representation.detach().cpu().numpy(),
           "sentences": [" ".join(observation.sentence)] * int(length),
           "idxs": range(representation.shape[0]),
           "words": observation.sentence,
           "relations": append_prefix(observation.governance_relations),
           "pos": append_prefix((observation.upos_sentence if hasattr(observation, 'upos_sentence') else observation.pos)),
-          "pairs": np.stack((projection, projection_heads)),
-          "diffs": np.array(projection) - np.array(projection_heads), 
+          # "pairs": np.stack((projection, projection_heads)),
           "is_head": [(x == '0') for x in observation.head_indices],
         }
-        if split_name == "": to_add['representations'] = representation.detach().cpu().numpy(),
+        if didTrain: to_add.update({
+            "projections": projection,
+            "diffs": np.array(projection) - np.array(projection_heads)
+        })
         if hasattr(observation, 'morph'): to_add['morphs'] = observation.morph
         if hasattr(observation, 'pred'): to_add['pred'] = observation.pred
-        if hasattr(probe, 'linear1'): to_add['logits'] = probe(representation.unsqueeze(0)).detach().cpu().numpy().squeeze(axis=0)
+        if hasattr(self.probe, 'linear1'): to_add['logits'] = self.probe(representation.unsqueeze(0)).detach().cpu().numpy().squeeze(axis=0)
         for target in to_add:
           outputs[target] += list(to_add[target])
         i += 1
@@ -97,7 +127,7 @@ class Reporter:
         hf.create_dataset(output, data=np.array(values), compression="gzip")
         hf.close()
       else: 
-        with open(os.path.join(self.reporting_root, split_name + '-' + output + '.txt'), 'w') as fout:
+        with open(os.path.join(output_path, split_name + '-' + output + '.txt'), 'w') as fout:
           fout.write("\n".join(str(item) for item in values))
     
     return outputs
@@ -127,6 +157,7 @@ class WordPairReporter(Reporter):
         'image_examples':self.report_image_examples,
         'uuas':self.report_uuas_and_tikz,
         'write_predictions':self.write_json,
+        'write_data': self.write_data,
         'proj_acc': self.report_proj_nonproj_accuracy,
         'adj_acc': self.report_adj_accuracy
     }

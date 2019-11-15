@@ -1,4 +1,5 @@
 .DS_Store
+*.pyc
 tests/multiling/experiments/*
 tests/results
 tests/multiling/results

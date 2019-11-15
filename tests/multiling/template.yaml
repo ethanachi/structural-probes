@@ -54,3 +54,5 @@ reporting:
     - spearmanr
       #- image_examples
     - uuas
+    - proj_acc
+    - adj_acc

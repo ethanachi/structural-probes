@@ -149,6 +149,7 @@ def run_report_results(args, probe, dataset, model, loss, reporter, regimen):
   """
   probe_params_path = os.path.join(args['reporting']['root'],args['probe']['params_path'])
 
+  dev_dataloader = dataset.get_dev_dataloader()
   try:
     probe.load_state_dict(torch.load(probe_params_path))
     probe.eval()
@@ -157,8 +158,7 @@ def run_report_results(args, probe, dataset, model, loss, reporter, regimen):
     print("No trained probe found.")
     dev_predictions = None
 
-  dev_dataloader = dataset.get_dev_dataloader()
-  reporter(dev_predictions, dev_dataloader, 'dev')
+  reporter(dev_predictions, probe, model, dev_dataloader, 'dev')
 
   #train_dataloader = dataset.get_train_dataloader(shuffle=False)
   #train_predictions = regimen.predict(probe, model, train_dataloader)
