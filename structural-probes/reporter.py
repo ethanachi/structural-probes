@@ -5,7 +5,7 @@ import os
 
 from tqdm import tqdm
 from scipy.stats import spearmanr, pearsonr
-import numpy as np 
+import numpy as np
 import json
 import sklearn.metrics
 import torch
@@ -46,7 +46,7 @@ class Reporter:
   def __call__(self, prediction_batches, probe, model, dataloader, split_name):
     """
     Performs all reporting methods as specifed in the yaml experiment config dict.
-    
+
     Any reporting method not in test_reporting_constraint will not
       be reported on for the test set.
 
@@ -68,7 +68,7 @@ class Reporter:
             , dataloader, split_name)
       else:
         tqdm.write('[WARNING] Reporting method not known: {}; skipping'.format(method))
-        
+
 
   def write_data(self, prediction_batches, dataset, split_name):
     output_path = os.path.join(self.reporting_root, 'data')
@@ -82,10 +82,9 @@ class Reporter:
     if didTrain:
         self.probe.load_state_dict(torch.load(probe_params_path))
         self.probe.eval()
-    
     to_output = ["projections", "sentences", "idxs", "words", "relations", "pos", "pairs", "diffs", "morphs", "representations", "is_head"]
     outputs = defaultdict(list)
-    
+
     i = 0
     for data_batch, label_batch, length_batch, observation_batch in dataset:
       for label, length, (observation, _), representation in zip(label_batch, length_batch, observation_batch, data_batch):
@@ -119,23 +118,23 @@ class Reporter:
         for target in to_add:
           outputs[target] += list(to_add[target])
         i += 1
-    
+
     for output, values in outputs.items():
       print("Writing", output, "to disk")
       if output in ('representations', 'projections', 'logits', 'diffs'):
         hf = h5py.File(os.path.join(output_path, split_name + '-' + output + '.hdf5'), 'w')
         hf.create_dataset(output, data=np.array(values), compression="gzip")
         hf.close()
-      else: 
-        with open(os.path.join(output_path, split_name + '-' + output + '.txt'), 'w') as fout:
+      else:
+        with open(os.path.join(self.reporting_root, split_name + '-' + output + '.txt'), 'w') as fout:
           fout.write("\n".join(str(item) for item in values))
-    
+
     return outputs
 
 
   def write_json(self, prediction_batches, dataset, split_name):
     """Writes observations and predictions to disk.
-    
+
     Args:
       prediction_batches: A sequence of batches of predictions for a data split
       dataset: A sequence of batches of Observations
@@ -159,7 +158,8 @@ class WordPairReporter(Reporter):
         'write_predictions':self.write_json,
         'write_data': self.write_data,
         'proj_acc': self.report_proj_nonproj_accuracy,
-        'adj_acc': self.report_adj_accuracy
+        'adj_acc': self.report_adj_accuracy,
+        'write_data': self.write_data,
     }
     self.reporting_root = args['reporting']['root']
     self.test_reporting_constraint = {'spearmanr', 'uuas', 'root_acc'}
@@ -193,7 +193,7 @@ class WordPairReporter(Reporter):
         label = label[:length,:length].cpu()
         spearmanrs = [spearmanr(pred, gold) for pred, gold in zip(prediction, label)]
         lengths_to_spearmanrs[length].extend([x.correlation for x in spearmanrs])
-    mean_spearman_for_each_length = {length: np.mean(lengths_to_spearmanrs[length]) 
+    mean_spearman_for_each_length = {length: np.mean(lengths_to_spearmanrs[length])
         for length in lengths_to_spearmanrs}
 
     with open(os.path.join(self.reporting_root, split_name + '.spearmanr'), 'w') as fout:
@@ -314,7 +314,7 @@ class WordPairReporter(Reporter):
       split_name the string naming the data split: {train,dev,test}
     """
     uspan_total = 0
-    uspan_correct = 0 
+    uspan_correct = 0
     total_nonproj_deps = 0
     total_proj_deps = 0
     correct_nonproj_deps = 0
@@ -344,10 +344,10 @@ class WordPairReporter(Reporter):
                 # print(" examining", words[i])
                 curr = head_indices[i]
                 # print(curr, words[curr-1])
-                while curr != 0 and curr != head + 1: 
+                while curr != 0 and curr != head + 1:
                     curr = head_indices[curr-1]
                     # print(curr, words[curr-1])
-                if head != -1 and curr == 0: 
+                if head != -1 and curr == 0:
                     # print("nonproj")
                     # print()
                     return False
@@ -355,19 +355,19 @@ class WordPairReporter(Reporter):
             return True
 
         is_proj = [is_projective(dep) for dep in range(length)]
-    
+
         gold_edges = prims_matrix_to_edges(label, words, poses)
         pred_edges = prims_matrix_to_edges(prediction, words, poses)
 
         pairs = 0
 
-        out_debug_pairs = [] 
+        out_debug_pairs = []
 
         for idx, head_idx in enumerate(head_indices):
             if head_idx == 0: continue
             if poses[idx] in ["''", ",", ".", ":", "``", "-LRB-", "-RRB-", "PUNCT"]: continue
             head_idx -= 1
-            out_debug_pairs.append(tuple(sorted([idx, head_idx]))) 
+            out_debug_pairs.append(tuple(sorted([idx, head_idx])))
             if is_projective(idx):
                 total_proj_deps += 1
                 pairs += 1
@@ -393,21 +393,21 @@ class WordPairReporter(Reporter):
     total_deps = total_proj_deps + total_nonproj_deps
 
     with open(os.path.join(self.reporting_root, split_name+'-nonproj.info'), 'w') as fout:
-        fout.write(f"Proj: {correct_proj_deps}\n{total_proj_deps}\n{correct_proj_deps/total_proj_deps}\n") 
+        fout.write(f"Proj: {correct_proj_deps}\n{total_proj_deps}\n{correct_proj_deps/total_proj_deps}\n")
         if total_nonproj_deps != 0:
-            fout.write(f"Nonproj: {correct_nonproj_deps}\n{total_nonproj_deps}\n{correct_nonproj_deps/total_nonproj_deps}\n") 
-        fout.write(f"Total: {correct_deps}\n{total_deps}\n{correct_deps/total_deps}\n") 
+            fout.write(f"Nonproj: {correct_nonproj_deps}\n{total_nonproj_deps}\n{correct_nonproj_deps/total_nonproj_deps}\n")
+        fout.write(f"Total: {correct_deps}\n{total_deps}\n{correct_deps/total_deps}\n")
 
     with open(os.path.join(self.reporting_root, split_name+'-nonproj.acc'), 'w') as fout:
         if total_nonproj_deps != 0:
-            fout.write(f"{correct_nonproj_deps}\n{total_nonproj_deps}\n{correct_nonproj_deps/total_nonproj_deps}") 
+            fout.write(f"{correct_nonproj_deps}\n{total_nonproj_deps}\n{correct_nonproj_deps/total_nonproj_deps}")
 
   def print_tikz(self, prediction_edges, gold_edges, words, split_name):
     ''' Turns edge sets on word (nodes) into tikz dependency LaTeX. '''
     with open(os.path.join(self.reporting_root, split_name+'.tikz'), 'a') as fout:
       string = """\\begin{dependency}[hide label, edge unit distance=.5ex]
     \\begin{deptext}[column sep=0.05cm]
-    """ 
+    """
       string += "\\& ".join([x.replace('$', '\$').replace('&', '+') for x in words]) + " \\\\" + '\n'
       string += "\\end{deptext}" + '\n'
       for i_index, j_index in gold_edges:
@@ -456,7 +456,7 @@ class WordPairReporter(Reporter):
         head_indices = [int(x)-1 for x in observation.head_indices]
         is_proj = np.zeros([length])
 
-    
+
         gold_edges = prims_matrix_to_edges(label, words, poses)
         pred_edges = prims_matrix_to_edges(prediction, words, poses)
 
@@ -473,7 +473,7 @@ class WordPairReporter(Reporter):
                     correct_post_adj += (tuple(sorted([idx, head_idx])) in pred_edges)
 
     with open(os.path.join(self.reporting_root, split_name+'-adj.info'), 'w') as fout:
-        fout.write(f"Pre: ({correct_pre_adj}/{total_pre_adj})\t{correct_pre_adj/total_pre_adj}\n") 
+        fout.write(f"Pre: ({correct_pre_adj}/{total_pre_adj})\t{correct_pre_adj/total_pre_adj}\n")
         fout.write(f"Post: ({correct_post_adj}\n{total_post_adj})\t{correct_post_adj/total_post_adj}\n")
 
   def print_tikz(self, prediction_edges, gold_edges, words, split_name):
@@ -481,7 +481,7 @@ class WordPairReporter(Reporter):
     with open(os.path.join(self.reporting_root, split_name+'.tikz'), 'a') as fout:
       string = """\\begin{dependency}[hide label, edge unit distance=.5ex]
     \\begin{deptext}[column sep=0.05cm]
-    """ 
+    """
       string += "\\& ".join([x.replace('$', '\$').replace('&', '+') for x in words]) + " \\\\" + '\n'
       string += "\\end{deptext}" + '\n'
       for i_index, j_index in gold_edges:
@@ -539,7 +539,7 @@ class WordReporter(Reporter):
         label = label[:length].cpu()
         sent_spearmanr = spearmanr(prediction, label)
         lengths_to_spearmanrs[length].append(sent_spearmanr.correlation)
-    mean_spearman_for_each_length = {length: np.mean(lengths_to_spearmanrs[length]) 
+    mean_spearman_for_each_length = {length: np.mean(lengths_to_spearmanrs[length])
         for length in lengths_to_spearmanrs}
 
     with open(os.path.join(self.reporting_root, split_name + '.spearmanr'), 'w') as fout:
@@ -634,7 +634,7 @@ class WordReporter(Reporter):
         label = label[:length].cpu().numpy()
         predictions = np.argmax(prediction[:length], axis=-1)
         correct += np.sum(predictions[label != -1] == label[label != -1])
-        total += len(np.where(label != -1)[0]) 
+        total += len(np.where(label != -1)[0])
     with open(os.path.join(self.reporting_root, split_name + '.label_acc'), 'w') as fout:
       fout.write(str(float(correct)/  total) + '\n')
 
@@ -647,14 +647,14 @@ class WordReporter(Reporter):
         label = label[:length].cpu().numpy()
         predictions = np.argmax(prediction[:length], axis=-1)
         label, predictions = label[label != -1], predictions[label != -1]
-        SEMANTIC_LABELS = ["ADV", "CAU", "DIR", "DIS", "EXT", "LOC", "MNR", "MOD", "NEG", "PNC", "PRD", "PRT", "REC", "TMP"] 
+        SEMANTIC_LABELS = ["ADV", "CAU", "DIR", "DIS", "EXT", "LOC", "MNR", "MOD", "NEG", "PNC", "PRD", "PRT", "REC", "TMP"]
         for l in label: true_distribution[SEMANTIC_LABELS[int(l)]] += 1
         for p in predictions: predicted_distribution[SEMANTIC_LABELS[int(p)]] += 1
     with open(os.path.join(self.reporting_root, split_name + '.distribution'), 'w') as fout:
       for l in SEMANTIC_LABELS:
         fout.write(f"{l}\t{true_distribution[l]}\t{predicted_distribution[l]}\n")
 
-  def report_confusion_matrix(self, prediction_batches, dataset, split_name): 
+  def report_confusion_matrix(self, prediction_batches, dataset, split_name):
     confusion_matrix = np.zeros([14, 14])
     for prediction_batch, (data_batch, label_batch, length_batch, observation_batch) in zip(
         prediction_batches, dataset):
@@ -664,8 +664,8 @@ class WordReporter(Reporter):
         if np.where(label != -1)[0].shape[0]:
           confusion_matrix += sklearn.metrics.confusion_matrix(label[label != -1], predictions[label != -1], range(0, 14))
 
-    SEMANTIC_LABELS = ["ADV", "CAU", "DIR", "DIS", "EXT", "LOC", "MNR", "MOD", "NEG", "PNC", "PRD", "PRT", "REC", "TMP"] 
-    
+    SEMANTIC_LABELS = ["ADV", "CAU", "DIR", "DIS", "EXT", "LOC", "MNR", "MOD", "NEG", "PNC", "PRD", "PRT", "REC", "TMP"]
+
     ax = sns.heatmap(confusion_matrix, annot=True, annot_kws={"size": 5})
     ax.set_title('Confusion Matrix')
     ax.set_ylabel('True Label')
@@ -684,13 +684,13 @@ class WordReporter(Reporter):
     ax.set_xlabel('Predicted Label')
     ax.set_xticks(np.arange(14))
     ax.set_yticks(np.arange(14))
-    SEMANTIC_LABELS = ["ADV", "CAU", "DIR", "DIS", "EXT", "LOC", "MNR", "MOD", "NEG", "PNC", "PRD", "PRT", "REC", "TMP"] 
+    SEMANTIC_LABELS = ["ADV", "CAU", "DIR", "DIS", "EXT", "LOC", "MNR", "MOD", "NEG", "PNC", "PRD", "PRT", "REC", "TMP"]
     ax.set_xticklabels(SEMANTIC_LABELS, rotation=90, fontsize=6, ha='left')
     ax.set_yticklabels(SEMANTIC_LABELS, rotation=0, fontsize=6, va='top')
     plt.tight_layout()
     plt.savefig(os.path.join(self.reporting_root, split_name + '-confusion-norm.png'), dpi=300)
 
-    print(confusion_matrix) 
+    print(confusion_matrix)
 
   def report_confusion_examples(self, prediction_batches, dataset, split_name):
     confusion_examples = defaultdict(list)
@@ -712,7 +712,7 @@ class WordReporter(Reporter):
        print(confusion_examples[pair])
        fout.write('\n'.join('\t'.join([str(y) for y in x]) for x in confusion_examples[pair]))
 
-  
+
 
 class UnionFind:
   '''
