@@ -187,7 +187,7 @@ class SimpleDataset:
       # resolve ambiguities
       for i, indices in enumerate(head_indices, 1):
         if not isinstance(indices, list): continue # nothing to be resolved
-        indices = list(set(indices))
+        indices = list(set(indices))    # remove duplicates
         for idx in indices:
           if (head_indices[int(idx)-1] == str(i) or
              (isinstance(head_indices[int(idx)-1], list) and str(i) in head_indices[int(idx)-1])):
@@ -197,7 +197,7 @@ class SimpleDataset:
         elif len(indices) == 0:
             raise AssertionError
         else:
-          print("Remaining ambiguity found", len(indices), conllx_lines[i-1])
+          # print("Remaining ambiguity found", len(indices), conllx_lines[i-1])
           head_indices[i-1] = indices[-1]
       data[head_index] = tuple(head_indices)
       for x in head_indices:
