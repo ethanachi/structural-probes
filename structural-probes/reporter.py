@@ -14,8 +14,8 @@ import h5py
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
-import seaborn as sns
-sns.set(style="darkgrid")
+#import seaborn as sns
+#sns.set(style="darkgrid")
 mpl.rcParams['agg.path.chunksize'] = 10000
 
 USE_MULTILINGUAL = False

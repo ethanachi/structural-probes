@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 class ProbeRegimen:
   """Basic regimen for training and running inference on probes.
-  
+
   Tutorial help from:
   https://pytorch.org/tutorials/beginner/transfer_learning_tutorial.html
 
@@ -24,7 +24,7 @@ class ProbeRegimen:
 
   def set_optimizer(self, probe):
     """Sets the optimizer and scheduler for the training regimen.
-  
+
     Args:
       probe: the probe PyTorch model the optimizer should act on.
     """
@@ -95,7 +95,7 @@ class ProbeRegimen:
     Args:
       probe: An instance of probe.Probe, transforming model outputs to predictions
       model: An instance of model.Model, transforming inputs to word reprs
-      dataset: A pytorch.DataLoader object 
+      dataset: A pytorch.DataLoader object
 
     Returns:
       A list of predictions for each batch in the batches yielded by the dataset
