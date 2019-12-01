@@ -1,0 +1,27 @@
+<html>
+    <head>
+        <link rel="stylesheet" type="text/css" href="main.css"/>
+    </head>
+    <body>
+        <div class="container">
+            <div class="visualization"></div>
+            <div class="side">
+                <input type="checkbox" id="check-ar" class="checkbox" checked> ar
+                <input type="checkbox" id="check-de" class="checkbox" checked> de
+                <input type="checkbox" id="check-en" class="checkbox" checked> en
+                <input type="checkbox" id="check-es" class="checkbox" checked> es
+                <input type="checkbox" id="check-fa" class="checkbox" checked> fa
+                <input type="checkbox" id="check-fi" class="checkbox" checked> fi
+                <input type="checkbox" id="check-fr" class="checkbox" checked> fr
+                <input type="checkbox" id="check-id" class="checkbox" checked> id
+                <input type="checkbox" id="check-zh" class="checkbox" checked> zh
+                <button onclick="reloadData()">Reload</button>
+                <button onclick="selectAll()">Select All</button>
+                <button onclick="saveImage()">Save Image</button>
+                <a id="link">Download</a>
+            </div>
+            <script src="https://d3js.org/d3.v5.min.js"></script>
+            <script src="multilingual.js"></script>
+        </div>
+    </body>
+</html>
