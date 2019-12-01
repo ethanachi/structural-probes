@@ -43,13 +43,13 @@ class SimpleDataset:
 
   def read_from_disk(self):
     '''Reads observations from conllx-formatted files
-    
-    as specified by the yaml arguments dictionary and 
+
+    as specified by the yaml arguments dictionary and
     optionally adds pre-constructed embeddings for them.
 
     Returns:
       A 3-tuple: (train, dev, test) where each element in the
-      tuple is a list of Observations for that split of the dataset. 
+      tuple is a list of Observations for that split of the dataset.
     '''
     train_corpus_path = os.path.join(self.args['dataset']['corpus']['root'],
         self.args['dataset']['corpus']['train_path'])
@@ -63,13 +63,16 @@ class SimpleDataset:
 
     train_embeddings_path = os.path.join(self.args['dataset']['embeddings']['root'],
         self.args['dataset']['embeddings']['train_path'])
+    train_keys = self.args['dataset']['embeddings'].get('train_keys', None)
     dev_embeddings_path = os.path.join(self.args['dataset']['embeddings']['root'],
         self.args['dataset']['embeddings']['dev_path'])
+    dev_keys = self.args['dataset']['embeddings'].get('dev_keys', None)
     test_embeddings_path = os.path.join(self.args['dataset']['embeddings']['root'],
         self.args['dataset']['embeddings']['test_path'])
-    train_observations = self.optionally_add_embeddings(train_observations, train_embeddings_path, skip_lines=True)
-    dev_observations = self.optionally_add_embeddings(dev_observations, dev_embeddings_path)
-    test_observations = self.optionally_add_embeddings(test_observations, test_embeddings_path)
+    test_keys = self.args['dataset']['embeddings'].get('test_keys', None)
+    train_observations = self.optionally_add_embeddings(train_observations, train_embeddings_path, skip_lines=True, keys=train_keys)
+    dev_observations = self.optionally_add_embeddings(dev_observations, dev_embeddings_path, keys=dev_keys)
+    test_observations = self.optionally_add_embeddings(test_observations, test_embeddings_path, keys=test_keys)
     return train_observations, dev_observations, test_observations
 
   def get_observation_class(self, fieldnames):
@@ -109,7 +112,7 @@ class SimpleDataset:
           if skip_lines and index in self.lines_to_skip:
             self.obvs_to_skip.append(obvs_idx)
           else:
-            yield buf 
+            yield buf
           buf = []
           obvs_idx += 1
         else:
@@ -119,78 +122,89 @@ class SimpleDataset:
     if buf:
       yield buf
 
+  def remove_ranges(self, lines, head_index):
+    import copy
+    lines = copy.deepcopy(lines)
+    index_mappings = {'0': '0'}
+    for index in range(len(lines)):
+      if index >= len(lines): break
+      line = lines[index]
+      if '-' in line[0]:
+        l, r = [int(x) for x in line[0].split('-')]
+        width = r - l + 1
+        newLine = lines[index+1]         # copy all data but lemma, index from the first word in the range
+        newLine[0] = str(l)              # the new index is the first index of the range
+        newLine[1] = line[1]             # copy the lemma of the entire fused range
+        possibleIndices = [l[head_index] for l in lines[index+1:index+1+width]]
+
+        # we only keep head indices that aren't within the range
+        toUse = list(x for x in possibleIndices if not (l <= int(x) <= r))
+        newLine[head_index] = toUse[0] if len(toUse) == 1 else toUse
+
+        lines[index] = newLine
+        del lines[index+1:index+1+width]
+        for i in range(l, r + 1):
+          index_mappings[str(i)] = str(index + 1)
+      else:
+        index_mappings[lines[index][0]] = str(index + 1)
+      lines[index][0] = str(index + 1)
+
+    def toMapping(x):
+      if isinstance(x, list): return [index_mappings[y] for y in x]
+      return index_mappings[x]
+
+    for i, line in enumerate(lines):
+      line[head_index] = toMapping(line[head_index])
+    return lines
+
+
   def load_conll_dataset(self, filepath, skip_lines=False):
     '''Reads in a conllx file; generates Observation objects
-    
+
     For each sentence in a conllx file, generates a single Observation
     object.
 
     Args:
       filepath: the filesystem path to the conll dataset
-  
+
     Returns:
-      A list of Observations 
+      A list of Observations
     '''
     observations = []
     lines = (x for x in open(filepath))
-    fieldnamesIndex = self.args['dataset']['observation_fieldnames'].index('head_indices')
+    head_index = self.args['dataset']['observation_fieldnames'].index('head_indices')
     for buf in self.generate_lines_for_sent(lines, skip_lines):
-      # print("\n".join(buf))
       conllx_lines = []
-      skip_count = 0
       for line in buf:
-        parts = line.strip().split('\t')
         conllx_lines.append(line.strip().split('\t'))
       conllx_lines = [x for x in conllx_lines if '.' not in x[0]]
-      embeddings = [None for x in range(len(conllx_lines))]
-      index_mappings = {'0': '0'}
-      for index in range(len(conllx_lines)):
-          if index >= len(conllx_lines): break
-          line = conllx_lines[index]
-          if '-' in line[0]:
-            l, r = [int(x) for x in line[0].split('-')]
-            width = r - l + 1
-            newLine = conllx_lines[index+1]
-            newLine[0] = str(l)
-            newLine[1] = line[1]
-            possibleIndices = [l[fieldnamesIndex] for l in conllx_lines[index+1:index+1+width]]
-            # print("pi=", possibleIndices)
-            toUse = list(filter(lambda y: not (l <= int(y) <= r), possibleIndices))
-            # print(list(filter(lambda y: not (l <= int(y) <= r), possibleIndices)))
-            newLine[fieldnamesIndex] = toUse[0] if len(toUse) == 1 else toUse
-            conllx_lines[index] = newLine
-            del conllx_lines[index+1:index+1+width]
-            for i in range(l, r + 1): index_mappings[str(i)] = str(index + 1)
-          else: index_mappings[conllx_lines[index][0]] = str(index + 1)
-          conllx_lines[index][0] = str(index + 1)
-      # print(index_mappings)
+      conllx_lines = self.remove_ranges(conllx_lines, head_index)
+
       data = list(zip(*conllx_lines))
 
-      # obs_test = self.observation_class(*data, embeddings)
-      # print(obs_test)
+      head_indices = list(data[head_index])
 
-      def toMapping(x): 
-        if isinstance(x, list): return [index_mappings[y] for y in x]
-        return index_mappings[x]
-      # print(' '.join(data.sentence))
-      head_indices = [toMapping(x) for x in data[fieldnamesIndex]]
-      
-      # print(head_indices)
-      for i in range(len(head_indices)):
-        indices = head_indices[i]
-        if not isinstance(indices, list): continue
-        # print("Found list at", i, indices)
+      # resolve ambiguities
+      for i, indices in enumerate(head_indices, 1):
+        if not isinstance(indices, list): continue # nothing to be resolved
+        indices = list(set(indices))    # remove duplicates
         for idx in indices:
-          #print(idx)
-          if head_indices[int(idx)-1] == str(i + 1) or (isinstance(head_indices[int(idx) - 1], list) and str(i + 1) in head_indices[int(idx)-1]): indices.remove(idx)
-        if len(indices) == 1: head_indices[i] = indices[0]
-        elif len(indices) == 0: 
-            # print("Error: all removed.")
+          if (head_indices[int(idx)-1] == str(i) or
+             (isinstance(head_indices[int(idx)-1], list) and str(i) in head_indices[int(idx)-1])):
+            indices.remove(idx)
+        if len(indices) == 1:
+          head_indices[i-1] = indices[0]
+        elif len(indices) == 0:
             raise AssertionError
-        else: head_indices[i] = indices[-1]
-      data[fieldnamesIndex] = head_indices
+        else:
+          # print("Remaining ambiguity found", len(indices), conllx_lines[i-1])
+          head_indices[i-1] = indices[-1]
+      data[head_index] = tuple(head_indices)
+      for x in head_indices:
+        assert(isinstance(x, str)), (data, x)
+
+      embeddings = [None for x in range(len(conllx_lines))]
       observation = self.observation_class(*data, embeddings)
-      # print(observation)
       observations.append(observation)
 
     return observations
@@ -224,7 +238,7 @@ class SimpleDataset:
       filepath: The filepath of a hdf5 file containing embeddings.
       layer_index: The index corresponding to the layer of representation
           to be used. (e.g., 0, 1, 2 for ELMo0, ELMo1, ELMo2.)
-    
+
     Returns:
       A list of numpy matrices; one for each observation.
 
@@ -232,7 +246,7 @@ class SimpleDataset:
       AssertionError: sent_length of embedding was not the length of the
         corresponding sentence in the dataset.
     '''
-    hf = h5py.File(filepath, 'r') 
+    hf = h5py.File(filepath, 'r')
     indices = filter(lambda x: x != 'sentence_to_index', list(hf.keys()))
     single_layer_features_list = []
     for index in sorted([int(x) for x in indices]):
@@ -245,9 +259,9 @@ class SimpleDataset:
 
   def integerize_observations(self, observations):
     '''Replaces strings in an Observation with integer Ids.
-    
+
     The .sentence field of the Observation will have its strings
-    replaced with integer Ids from self.vocab. 
+    replaced with integer Ids from self.vocab.
 
     Args:
       observations: A list of Observations describing a dataset
@@ -304,14 +318,14 @@ class SimpleDataset:
 
   def custom_pad(self, batch_observations):
     '''Pads sequences with 0 and labels with -1; used as collate_fn of DataLoader.
-    
+
     Loss functions will ignore -1 labels.
     If labels are 1D, pads to the maximum sequence length.
     If labels are 2D, pads all to (maxlen,maxlen).
 
     Args:
       batch_observations: A list of observations composing a batch
-    
+
     Return:
       A tuple of:
           input batch, padded
@@ -407,7 +421,7 @@ class BERTDataset(SubwordDataset):
     args: the global yaml-derived experiment config dictionary
   """
 
-  def generate_subword_embeddings_from_hdf5(self, observations, filepath, elmo_layer, subword_tokenizer=None, skip_lines=False):
+  def generate_subword_embeddings_from_hdf5(self, observations, filepath, elmo_layer, subword_tokenizer=None, skip_lines=False, keys=None):
     '''Reads pre-computed subword embeddings from hdf5-formatted file.
 
     Sentences should be given integer keys corresponding to their order
@@ -427,14 +441,14 @@ class BERTDataset(SubwordDataset):
           to be used. (e.g., 0, 1, 2 for BERT0, BERT1, BERT2.)
       subword_tokenizer: (optional) a tokenizer used to map from
           conllx tokens to subword tokens.
-    
+
     Returns:
       A list of numpy matrices; one for each observation.
 
     Raises:
       AssertionError: sent_length of embedding was not the length of the
         corresponding sentence in the dataset.
-      Exit: importing pytorch_pretrained_bert has failed, possibly due 
+      Exit: importing pytorch_pretrained_bert has failed, possibly due
           to downloading of prespecifed tokenizer problem. Not recoverable;
           exits immediately.
     '''
@@ -460,36 +474,30 @@ class BERTDataset(SubwordDataset):
     indices = list(hf.keys())
     single_layer_features_list = []
     joiner = ' ' if 'use_no_spaces' in self.args['model'] and self.args['model']['use_no_spaces'] == True else ' '
-    # print("Observations to skip:", self.obvs_to_skip)
-    # for obvs_idx in sorted(self.obvs_to_skip, reverse=True):
-    #  del embeddings[obvs_idx]
     offset = 0
-    for index in tqdm(sorted([int(x) for x in indices]), desc='[aligning embeddings]'):
-      if skip_lines and index in self.obvs_to_skip:
-        offset += 1
-        continue
-      observation = observations[index-offset]
-      feature_stack = hf[str(index)]
-      single_layer_features = feature_stack[elmo_layer]
-      # print("Sentence being tokenized: " +  '[CLS] ' + joiner.join(observation.sentence) + ' [SEP]')
-      tokenized_sent = subword_tokenizer.wordpiece_tokenizer.tokenize('[CLS] ' + joiner.join(observation.sentence) + ' [SEP]')
-      untokenized_sent = observation.sentence
-      # print(observation.sentence)
-      untok_tok_mapping = self.match_tokenized_to_untokenized(tokenized_sent, untokenized_sent)
-      # print("Layer features shape=", single_layer_features.shape)
-      # print("Tokenized sentence length=", len(tokenized_sent))
-      # print(tokenized_sent)
-      assert single_layer_features.shape[0] == len(tokenized_sent)
-      single_layer_features = torch.tensor([np.mean(single_layer_features[untok_tok_mapping[i][0]:untok_tok_mapping[i][-1]+1,:], axis=0) for i in range(len(untokenized_sent))])
-      assert single_layer_features.shape[0] == len(observation.sentence)
-      single_layer_features_list.append(single_layer_features)
-    return single_layer_features_list
+    if keys == None: keys = ['']
+    for key in keys:
+      for index in tqdm(sorted([int(x) for x in indices]), desc='[aligning embeddings]'):
+        if skip_lines and index in self.obvs_to_skip:
+          offset += 1
+          continue
+        observation = observations[index-offset]
+        feature_stack = hf[key + str(index)]
+        single_layer_features = feature_stack[elmo_layer]
+        tokenized_sent = subword_tokenizer.wordpiece_tokenizer.tokenize('[CLS] ' + joiner.join(observation.sentence) + ' [SEP]')
+        untokenized_sent = observation.sentence
+        untok_tok_mapping = self.match_tokenized_to_untokenized(tokenized_sent, untokenized_sent)
+        assert single_layer_features.shape[0] == len(tokenized_sent)
+        single_layer_features = torch.tensor([np.mean(single_layer_features[untok_tok_mapping[i][0]:untok_tok_mapping[i][-1]+1,:], axis=0) for i in range(len(untokenized_sent))])
+        assert single_layer_features.shape[0] == len(observation.sentence)
+        single_layer_features_list.append(single_layer_features)
+      return single_layer_features_list
 
-  def optionally_add_embeddings(self, observations, pretrained_embeddings_path, skip_lines=False):
+  def optionally_add_embeddings(self, observations, pretrained_embeddings_path, skip_lines=False, keys=None):
     """Adds pre-computed BERT embeddings from disk to Observations."""
     layer_index = self.args['model']['model_layer']
     print('Loading BERT Pretrained Embeddings from {}; using layer {}'.format(pretrained_embeddings_path, layer_index))
-    embeddings = self.generate_subword_embeddings_from_hdf5(observations, pretrained_embeddings_path, layer_index, skip_lines=skip_lines)
+    embeddings = self.generate_subword_embeddings_from_hdf5(observations, pretrained_embeddings_path, layer_index, skip_lines=skip_lines, keys=keys)
     observations = self.add_embeddings_to_observations(observations, embeddings)
     return observations
 
@@ -520,4 +528,3 @@ class ObservationIterator(Dataset):
 
   def __getitem__(self, idx):
     return self.observations[idx], self.labels[idx]
-
