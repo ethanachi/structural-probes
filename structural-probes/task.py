@@ -10,7 +10,7 @@ class Task:
   @staticmethod
   def labels(observation):
     """Maps an observation to a matrix of labels.
-    
+
     Should be overriden in implementing classes.
     """
     raise NotImplementedError
@@ -51,7 +51,7 @@ class ParseDistanceTask(Task):
 
     TODO: It would be (much) more efficient to compute all pairs' distances at once;
           this pair-by-pair method is an artefact of an older design, but
-          was unit-tested for correctness... 
+          was unit-tested for correctness...
 
     Args:
       observation: an Observation namedtuple, with a head_indices field.
@@ -79,7 +79,6 @@ class ParseDistanceTask(Task):
     j_path = [j+1]
     i_head = i+1
     j_head = j+1
-    # print(head_indices)
     n = 60
     while True and n > 0:
       n -= 1
@@ -103,7 +102,11 @@ class ParseDistanceTask(Task):
         i_path_length = len(i_path) - 1
         j_path_length = len(j_path) - 1
         break
-    total_length = j_path_length + i_path_length
+    try:
+      total_length = j_path_length + i_path_length
+    except:
+      print(observation)
+      raise AssertionError
     return total_length
 
 class ParseDepthTask:
@@ -174,7 +177,7 @@ class SemanticRolesTask:
     labels = [SemanticRolesTask.label_index(label) for label in observation.pred]
     labels = torch.Tensor(labels)
     return labels
-    
+
 
 
     # batch_clean = lambda l: ([elem.replace('AM-', '') if elem.startswith('AM-') and elem.replace('AM-', '') in SEMANTIC_LABELS else '_' for elem in l])
@@ -199,4 +202,3 @@ class SemanticRolesTask:
     }
     if label in conversions: label = conversions[label]
     return SEMANTIC_LABELS.index(label) if label in SEMANTIC_LABELS else -1
-

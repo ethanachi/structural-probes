@@ -81,10 +81,10 @@ class OneWordPSDProbe(Probe):
 
 class OneWordNonPSDProbe(Probe):
   """Computes a bilinear affinity between each word representation and itself.
-  
+
   This is different from the probes in A Structural Probe... as the
   matrix in the quadratic form is not guaranteed positive semi-definite
-  
+
   """
 
   def __init__(self, args):
@@ -132,7 +132,7 @@ class TwoWordNonPSDProbe(Probe):
     self.to(args['device'])
 
   def forward(self, batch):
-    """ Computes all n^2 pairs of difference scores 
+    """ Computes all n^2 pairs of difference scores
     for each sentence in a batch.
 
     Note that due to padding, some distances will be non-zero for pads.

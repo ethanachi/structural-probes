@@ -42,7 +42,7 @@ LANG_MAPPING = {
 
 def save_vector(path, name, arr):
   np.save(os.path.join(path, name + '.npy'), arr)
-  
+
 def write_data(args, probe, dataset, model, results_dir, output_path):
   probe_params_path = os.path.join(results_dir, args['probe']['params_path'])
   probe.load_state_dict(torch.load(probe_params_path))
@@ -50,10 +50,10 @@ def write_data(args, probe, dataset, model, results_dir, output_path):
 
 
   for dataloader, split_name in zip((dataset.get_train_dataloader(), dataset.get_dev_dataloader()), ("train", "dev")):
-    
+
     to_output = ["projections", "sentences", "idxs", "words", "relations", "pos", "pairs", "diffs", "morphs", "representations", "is_head"]
     outputs = defaultdict(list)
-    
+
     i = 0
     for data_batch, label_batch, length_batch, observation_batch in dataloader:
       for label, length, (observation, _), representation in zip(label_batch, length_batch, observation_batch, data_batch):
@@ -61,7 +61,7 @@ def write_data(args, probe, dataset, model, results_dir, output_path):
         proj_matrix = probe.proj if hasattr(probe, 'proj') else probe.linear1.weight.data.transpose(0, 1)
         projection = torch.matmul(representation, proj_matrix).detach().cpu().numpy()
         head_indices = [int(x) - 1 for x in observation.head_indices]
-        projection_heads = projection[head_indices] 
+        projection_heads = projection[head_indices]
         prefix = (LANG_MAPPING[i] + '-') if USE_MULTILINGUAL else ""
         append_prefix = lambda x: [prefix + elem for elem in x]
         to_add = {
@@ -72,9 +72,9 @@ def write_data(args, probe, dataset, model, results_dir, output_path):
           "relations": append_prefix(observation.governance_relations),
           "pos": append_prefix((observation.upos_sentence if hasattr(observation, 'upos_sentence') else observation.pos)),
           "pairs": np.stack((projection, projection_heads)),
-          "diffs": np.array(projection) - np.array(projection_heads), 
+          "diffs": np.array(projection) - np.array(projection_heads),
           "is_head": [(x == '0') for x in observation.head_indices],
-          "labels": label[:length].detach().cpu().numpy() 
+          "labels": label[:length].detach().cpu().numpy()
         }
         if split_name == "": to_add['representations'] = representation.detach().cpu().numpy(),
         if hasattr(observation, 'morph'): to_add['morphs'] = observation.morph
@@ -83,7 +83,7 @@ def write_data(args, probe, dataset, model, results_dir, output_path):
         for target in to_add:
           outputs[target] += list(to_add[target])
         i += 1
-    
+
     for output in outputs:
       if output in ('representations', 'projections', 'logits'):
         hf = h5py.File(os.path.join(output_path, split_name + '-' + output + '.hdf5'), 'w')
@@ -98,7 +98,7 @@ def write_data(args, probe, dataset, model, results_dir, output_path):
 def perform_tsne(outputs, to_write, output_path, num_to_write=10000):
   tsne = TSNE(n_components=2, random_state=229, verbose=10)
   print("Fitting TSNE.")
-  
+
   if USE_MULTILINGUAL:
     # we sample uniformly per-language
     langs = lang_mapping.keys()
@@ -157,7 +157,7 @@ if __name__ == '__main__':
   argp.add_argument('--seed', default=0, type=int,
       help='sets all random seeds for (within-machine) reproducibility')
   argp.add_argument('--tsne', dest="tsne", action="store_true")
-  
+
   cli_args = argp.parse_args()
   if cli_args.seed:
     np.random.seed(cli_args.seed)
@@ -166,7 +166,7 @@ if __name__ == '__main__':
     torch.backends.cudnn.benchmark = False
 
   output_path = '/u/scr/{}/relationOutputs/{}'.format(getpass.getuser(), cli_args.output_name)
-  
+
   try:
     os.mkdir(output_path)
   except FileExistsError:

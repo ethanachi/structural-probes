@@ -51,28 +51,33 @@ class SimpleDataset:
       A 3-tuple: (train, dev, test) where each element in the
       tuple is a list of Observations for that split of the dataset.
     '''
-    train_corpus_path = os.path.join(self.args['dataset']['corpus']['root'],
-        self.args['dataset']['corpus']['train_path'])
-    dev_corpus_path = os.path.join(self.args['dataset']['corpus']['root'],
-        self.args['dataset']['corpus']['dev_path'])
-    test_corpus_path = os.path.join(self.args['dataset']['corpus']['root'],
-        self.args['dataset']['corpus']['test_path'])
-    train_observations = self.load_conll_dataset(train_corpus_path, skip_lines=True)
-    dev_observations = self.load_conll_dataset(dev_corpus_path, skip_lines=False)
-    test_observations = self.load_conll_dataset(test_corpus_path, skip_lines=False)
+    train_keys = None
+    dev_keys = None
+    test_keys = None
+    if 'keys' in self.args['dataset']:
+      train_keys = self.args['dataset']['keys']['train']
+      dev_keys = self.args['dataset']['keys']['dev']
+      test_keys = self.args['dataset']['keys']['test']
+
+    root_path = self.args['dataset']['corpus']['root']
+    train_path = self.args['dataset']['corpus']['train_path']
+    dev_path = self.args['dataset']['corpus']['dev_path']
+    test_path = self.args['dataset']['corpus']['test_path']
+
+
+    train_observations = self.load_keyed_conll_dataset(root_path, train_path, skip_lines=True, keys=train_keys) if self.args['train_probe'] else []
+    dev_observations = self.load_keyed_conll_dataset(root_path, dev_path, skip_lines=False, keys=dev_keys)
+    test_observations = [] # self.load_keyed_conll_dataset(root_path, test_path, skip_lines=False, keys=test_keys)
 
     train_embeddings_path = os.path.join(self.args['dataset']['embeddings']['root'],
         self.args['dataset']['embeddings']['train_path'])
-    train_keys = self.args['dataset']['embeddings'].get('train_keys', None)
     dev_embeddings_path = os.path.join(self.args['dataset']['embeddings']['root'],
         self.args['dataset']['embeddings']['dev_path'])
-    dev_keys = self.args['dataset']['embeddings'].get('dev_keys', None)
     test_embeddings_path = os.path.join(self.args['dataset']['embeddings']['root'],
         self.args['dataset']['embeddings']['test_path'])
-    test_keys = self.args['dataset']['embeddings'].get('test_keys', None)
-    train_observations = self.optionally_add_embeddings(train_observations, train_embeddings_path, skip_lines=True, keys=train_keys)
+    train_observations = self.optionally_add_embeddings(train_observations, train_embeddings_path, skip_lines=True, keys=train_keys) if self.args['train_probe'] else []
     dev_observations = self.optionally_add_embeddings(dev_observations, dev_embeddings_path, keys=dev_keys)
-    test_observations = self.optionally_add_embeddings(test_observations, test_embeddings_path, keys=test_keys)
+    # test_observations = self.optionally_add_embeddings(test_observations, test_embeddings_path, keys=test_keys)
     return train_observations, dev_observations, test_observations
 
   def get_observation_class(self, fieldnames):
@@ -103,12 +108,12 @@ class SimpleDataset:
     obvs_idx = 0
     if skip_lines: self.obvs_to_skip = []
     for index, line in enumerate(lines):
-      # if index
       if line.startswith('#'):
+        # if 'sent_id' in line:
+          # print(line)
         continue
       if not line.strip():
         if buf:
-          # print(index, self.lines_to_skip)
           if skip_lines and index in self.lines_to_skip:
             self.obvs_to_skip.append(obvs_idx)
           else:
@@ -138,7 +143,11 @@ class SimpleDataset:
         possibleIndices = [l[head_index] for l in lines[index+1:index+1+width]]
 
         # we only keep head indices that aren't within the range
-        toUse = list(x for x in possibleIndices if not (l <= int(x) <= r))
+        toUse = [x for x in possibleIndices if not (l <= int(x) <= r)]
+        toUse = list(dict.fromkeys(toUse))
+        if len(toUse) == 0:
+          print(lines[index])
+          raise AssertionError
         newLine[head_index] = toUse[0] if len(toUse) == 1 else toUse
 
         lines[index] = newLine
@@ -157,8 +166,19 @@ class SimpleDataset:
       line[head_index] = toMapping(line[head_index])
     return lines
 
+  def load_keyed_conll_dataset(self, root_path, split_path, skip_lines=False, keys=None):
+    if keys == None:
+      print("No keys found...")
+      return self.load_conll_dataset(os.path.join(root_path, split_path), skip_lines)
+    else:
+      output = []
+      for key in keys:
+        print("Loading", key, split_path)
+        output += self.load_conll_dataset(os.path.join(root_path, key, split_path), skip_lines, key)
+      # print("output:", len(output))
+      return output
 
-  def load_conll_dataset(self, filepath, skip_lines=False):
+  def load_conll_dataset(self, filepath, skip_lines=False, key=""):
     '''Reads in a conllx file; generates Observation objects
 
     For each sentence in a conllx file, generates a single Observation
@@ -187,7 +207,14 @@ class SimpleDataset:
       # resolve ambiguities
       for i, indices in enumerate(head_indices, 1):
         if not isinstance(indices, list): continue # nothing to be resolved
-        indices = list(set(indices))    # remove duplicates
+        # print(indices)
+        indices = list(dict.fromkeys(indices))    # remove duplicates; can't use set because want to preserve order
+        # print(indices)
+        if len(indices) == 0:
+          raise AssertionError
+        if '0' in indices:
+          head_indices[i-1] = '0'
+          continue
         for idx in indices:
           if (head_indices[int(idx)-1] == str(i) or
              (isinstance(head_indices[int(idx)-1], list) and str(i) in head_indices[int(idx)-1])):
@@ -195,7 +222,7 @@ class SimpleDataset:
         if len(indices) == 1:
           head_indices[i-1] = indices[0]
         elif len(indices) == 0:
-            raise AssertionError
+          raise AssertionError
         else:
           # print("Remaining ambiguity found", len(indices), conllx_lines[i-1])
           head_indices[i-1] = indices[-1]
@@ -203,8 +230,10 @@ class SimpleDataset:
       for x in head_indices:
         assert(isinstance(x, str)), (data, x)
 
+      langs = [key for x in range(len(conllx_lines))]
       embeddings = [None for x in range(len(conllx_lines))]
-      observation = self.observation_class(*data, embeddings)
+      observation = self.observation_class(*data, langs, embeddings)
+      # print(observation)
       observations.append(observation)
 
     return observations
@@ -476,22 +505,32 @@ class BERTDataset(SubwordDataset):
     joiner = ' ' if 'use_no_spaces' in self.args['model'] and self.args['model']['use_no_spaces'] == True else ' '
     offset = 0
     if keys == None: keys = ['']
+    running_index = 0
+    # print([observation.sentence for observation in observations])
     for key in keys:
-      for index in tqdm(sorted([int(x) for x in indices]), desc='[aligning embeddings]'):
+      key_indices = [index.replace(key + '-', '') for index in indices if index.startswith(key)]
+      # print("key_indices are", key_indices)
+      for index in tqdm(sorted([int(x) for x in key_indices]), desc='[aligning {} embeddings]'.format(key)):
         if skip_lines and index in self.obvs_to_skip:
           offset += 1
           continue
-        observation = observations[index-offset]
-        feature_stack = hf[key + str(index)]
+        # print(index-offset+running_index)
+        observation = observations[index-offset + running_index]
+        hf_key = (key + '-' + str(index)) if key else str(index)
+        feature_stack = hf[hf_key]
         single_layer_features = feature_stack[elmo_layer]
         tokenized_sent = subword_tokenizer.wordpiece_tokenizer.tokenize('[CLS] ' + joiner.join(observation.sentence) + ' [SEP]')
         untokenized_sent = observation.sentence
         untok_tok_mapping = self.match_tokenized_to_untokenized(tokenized_sent, untokenized_sent)
+        # print(single_layer_features.shape[0], len(tokenized_sent))
+        # print(observation.sentence, observation.morph)
         assert single_layer_features.shape[0] == len(tokenized_sent)
         single_layer_features = torch.tensor([np.mean(single_layer_features[untok_tok_mapping[i][0]:untok_tok_mapping[i][-1]+1,:], axis=0) for i in range(len(untokenized_sent))])
         assert single_layer_features.shape[0] == len(observation.sentence)
         single_layer_features_list.append(single_layer_features)
-      return single_layer_features_list
+      running_index += index + 1
+    print("single layer features list is", len(single_layer_features_list))
+    return single_layer_features_list
 
   def optionally_add_embeddings(self, observations, pretrained_embeddings_path, skip_lines=False, keys=None):
     """Adds pre-computed BERT embeddings from disk to Observations."""

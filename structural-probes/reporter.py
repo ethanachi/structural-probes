@@ -1,7 +1,9 @@
 """Contains classes for computing and reporting evaluation metrics."""
 
 from collections import defaultdict
+from datetime import datetime
 import os
+from shutil import copyfile
 
 from tqdm import tqdm
 from scipy.stats import spearmanr, pearsonr
@@ -11,12 +13,14 @@ import sklearn.metrics
 import torch
 import h5py
 
-import matplotlib as mpl
-mpl.use('Agg')
-import matplotlib.pyplot as plt
+# import matplotlib as mpl
+# mpl.use('Agg')
+# import matplotlib.pyplot as plt
 #import seaborn as sns
 #sns.set(style="darkgrid")
-mpl.rcParams['agg.path.chunksize'] = 10000
+# mpl.rcParams['agg.path.chunksize'] = 10000
+from sklearn.manifold import TSNE
+from sklearn.decomposition import PCA
 
 USE_MULTILINGUAL = False
 
@@ -70,18 +74,19 @@ class Reporter:
         tqdm.write('[WARNING] Reporting method not known: {}; skipping'.format(method))
 
 
-  def write_data(self, prediction_batches, dataset, split_name):
+  def write_data(self, prediction_batches, dataset, split_name, save=True):
     output_path = os.path.join(self.reporting_root, 'data')
     if not os.path.exists(output_path):
       os.mkdir(output_path)
 
-    
+
     probe_params_path = os.path.join(self.reporting_root, self.args['probe']['params_path'])
     didTrain = (os.path.exists(probe_params_path))
 
     if didTrain:
-        self.probe.load_state_dict(torch.load(probe_params_path))
-        self.probe.eval()
+      print("Probe was trained.")
+    else:
+      print("Probe was not trained, omitting projections...")
     to_output = ["projections", "sentences", "idxs", "words", "relations", "pos", "pairs", "diffs", "morphs", "representations", "is_head"]
     outputs = defaultdict(list)
 
@@ -92,44 +97,201 @@ class Reporter:
         head_indices = [int(x) - 1 for x in observation.head_indices]
 
         if didTrain:
-            proj_matrix = self.probe.proj if hasattr(self.probe, 'proj') else self.probe.linear1.weight.data.transpose(0, 1)
-            projection = torch.matmul(representation, proj_matrix).detach().cpu().numpy()
-            projection_heads = projection[head_indices] 
+          proj_matrix = self.probe.proj if hasattr(self.probe, 'proj') else self.probe.linear1.weight.data.transpose(0, 1)
+          projection = torch.matmul(representation, proj_matrix).detach().cpu().numpy()
+          projection_heads = projection[head_indices]
 
         prefix = (LANG_MAPPING[i] + '-') if USE_MULTILINGUAL else ""
         append_prefix = lambda x: [prefix + elem for elem in x]
         to_add = {
-          "representations": representation.detach().cpu().numpy(),
           "sentences": [" ".join(observation.sentence)] * int(length),
           "idxs": range(representation.shape[0]),
           "words": observation.sentence,
-          "relations": append_prefix(observation.governance_relations),
-          "pos": append_prefix((observation.upos_sentence if hasattr(observation, 'upos_sentence') else observation.pos)),
-          # "pairs": np.stack((projection, projection_heads)),
+          "langs": observation.langs,
+          "relations": observation.governance_relations,
+          "pos": (observation.upos_sentence if hasattr(observation, 'upos_sentence') else observation.pos),
           "is_head": [(x == '0') for x in observation.head_indices],
         }
+        if save: to_add['representations'] = representation.detach().cpu().numpy()
+        else: to_add['base_diffs'] = representation.detach().cpu().numpy() - representation[head_indices].detach().cpu().numpy()
         if didTrain: to_add.update({
             "projections": projection,
             "diffs": np.array(projection) - np.array(projection_heads)
         })
+
         if hasattr(observation, 'morph'): to_add['morphs'] = observation.morph
         if hasattr(observation, 'pred'): to_add['pred'] = observation.pred
         if hasattr(self.probe, 'linear1'): to_add['logits'] = self.probe(representation.unsqueeze(0)).detach().cpu().numpy().squeeze(axis=0)
         for target in to_add:
           outputs[target] += list(to_add[target])
         i += 1
-
-    for output, values in outputs.items():
-      print("Writing", output, "to disk")
-      if output in ('representations', 'projections', 'logits', 'diffs'):
-        hf = h5py.File(os.path.join(output_path, split_name + '-' + output + '.hdf5'), 'w')
-        hf.create_dataset(output, data=np.array(values), compression="gzip")
-        hf.close()
-      else:
-        with open(os.path.join(self.reporting_root, split_name + '-' + output + '.txt'), 'w') as fout:
-          fout.write("\n".join(str(item) for item in values))
+    if save:
+      for output, values in outputs.items():
+        print("Writing", output, "to disk")
+        if output in ('representations', 'projections', 'logits', 'diffs'):
+          hf = h5py.File(os.path.join(output_path, split_name + '-' + output + '.hdf5'), 'w')
+          hf.create_dataset(output, data=np.array(values), compression="gzip")
+          hf.close()
+        else:
+          with open(os.path.join(self.reporting_root, split_name + '-' + output + '.txt'), 'w') as fout:
+            fout.write("\n".join(str(item) for item in values))
 
     return outputs
+
+  def write_tsne(self, prediction_batches, dataset, split_name, num_to_write=100000):
+    now = datetime.now()
+    date_suffix = '-'.join((str(x) for x in [now.year, now.month, now.day, now.hour, now.minute, now.second, now.microsecond]))
+    output_path = os.path.join(self.reporting_root, 'tsne' + '-' + date_suffix)
+    if not os.path.exists(output_path):
+      os.mkdir(output_path)
+    print("Constructing new tsne reporting directory at", output_path)
+    outputs = self.write_data(prediction_batches, dataset, split_name, save=False)
+    if 'reporting_settings' in self.args['reporting']:
+        ppl = self.args['reporting']['reporting_settings']['ppl']
+        print("Setting perplexity to", ppl) 
+    else:
+        ppl = 30
+
+    if 'reporting_settings' in self.args['reporting'] and 'training_iterations' in self.args['reporting']['reporting_settings']:
+        n_iter = self.args['reporting_settings']['n_iter']
+    else:
+        n_iter = 1000
+
+    tsne = TSNE(n_components=2, verbose=10, perplexity=ppl, n_iter=n_iter)
+    print("Fitting TSNE.")
+
+    keys = ['']
+    if 'keys' in self.args['dataset']:
+      keys = self.args['dataset']['keys'][split_name]
+
+    # we sample uniformly per-language
+    labels = outputs['relations']
+    langs_to_indices = {}
+    num_needed = num_to_write // len(keys)
+    lang_labels = np.array(outputs['langs'])
+    for lang in keys:
+      indices_to_choose = np.where(lang_labels == lang)[0]
+      if num_needed > indices_to_choose.shape[0]:
+        print("Warning: wanted", num_needed, "examples for tSNE, but only", indices_to_choose.shape[0], "found.")
+      indices_needed = indices_to_choose[np.random.choice(indices_to_choose.shape[0], min(num_needed, indices_to_choose.shape[0]), replace=False)]
+      langs_to_indices[lang] = indices_needed
+    indices = np.concatenate([langs_to_indices[lang] for lang in keys])
+
+    to_write = ['relations', 'sentences', 'idxs', 'words', 'langs']
+    cut_outputs = {(output_name[:-1] if output_name.endswith('s') else output_name): np.expand_dims(np.array(outputs[output_name])[indices], axis=1) for output_name in to_write}
+
+    # Perform tSNE
+    cut_diffs = np.array(outputs['diffs'])[indices]
+    reduced = tsne.fit_transform(cut_diffs)
+    print("Fitted.")
+    tsv_out = np.concatenate((reduced, *cut_outputs.values()), axis=1)
+    for cut_output, cut_vector in cut_outputs.items():
+      with open(os.path.join(output_path, split_name + '-' + cut_output + '.txt'), 'w') as f:
+        # print(cut_output, cut_vector)
+        f.write('\n'.join(list(cut_vector.astype(str).squeeze())))
+    hf = h5py.File(os.path.join(output_path, split_name + '.hdf5'), 'w')
+
+    header = "x0\tx1\t" + "\t".join(cut_outputs.keys())
+    print("Writing to", os.path.join(output_path, split_name + '.tsv'))
+    np.savetxt(os.path.join(output_path, split_name + '.tsv'), tsv_out, fmt="%s", header=header, comments="", delimiter="\t")
+
+  def visualize_tsne(self, prediction_batches, dataset, split_name, num_to_write=20000):
+    output_path = os.path.join(self.reporting_root, 'pca')
+    for filename in ('index.html', 'main.js', 'extended.css'):
+      copyfile(os.path.join('../visualization/', filename), os.path.join(output_path, filename))
+
+  def write_pca(self, prediction_batches, dataset, split_name, num_to_write=100000):
+    output_path = os.path.join(self.reporting_root, 'tsne')
+    if not os.path.exists(output_path):
+      os.mkdir(output_path)
+    outputs = self.write_data(prediction_batches, dataset, split_name, save=False)
+    pca = PCA(n_components=2, random_state=229)
+    print("Fitting PCA.")
+
+    keys = ['']
+    if 'keys' in self.args['dataset']:
+      keys = self.args['dataset']['keys'][split_name]
+
+    # we sample uniformly per-language
+    labels = outputs['relations']
+    langs_to_indices = {}
+    num_needed = num_to_write // len(keys)
+    lang_labels = np.array(outputs['langs'])
+    for lang in keys:
+      indices_to_choose = np.where(lang_labels == lang)[0]
+      if num_needed > indices_to_choose.shape[0]:
+        print("Warning: wanted", num_needed, "examples for tSNE, but only", indices_to_choose.shape[0], "found.")
+      indices_needed = indices_to_choose[np.random.choice(indices_to_choose.shape[0], min(num_needed, indices_to_choose.shape[0]), replace=False)]
+      langs_to_indices[lang] = indices_needed
+    indices = np.concatenate([langs_to_indices[lang] for lang in keys])
+
+    to_write = ['relations', 'sentences', 'idxs',	'words', 'langs']
+    cut_outputs = {(output_name[:-1] if output_name.endswith('s') else output_name): np.expand_dims(np.array(outputs[output_name])[indices], axis=1) for output_name in to_write}
+
+    # Perform tSNE
+    cut_diffs = np.array(outputs['diffs'])[indices]
+    reduced = pca.fit_transform(cut_diffs)
+    print("Fitted.")
+    tsv_out = np.concatenate((reduced, *cut_outputs.values()), axis=1)
+    for cut_output, cut_vector in cut_outputs.items():
+      with open(os.path.join(output_path, split_name + '-' + cut_output + '.txt'), 'w') as f:
+        # print(cut_output, cut_vector)
+        f.write('\n'.join(list(cut_vector.astype(str).squeeze())))
+    hf = h5py.File(os.path.join(output_path, split_name + '.hdf5'), 'w')
+
+    header = "x0\tx1\t" + "\t".join(cut_outputs.keys())
+    print("Writing to", os.path.join(output_path, split_name + '.tsv'))
+    np.savetxt(os.path.join(output_path, split_name + '.tsv'), tsv_out, fmt="%s", header=header, comments="", delimiter="\t")
+
+
+  def write_unprojected_tsne(self, prediction_batches, dataset, split_name, num_to_write=100000):
+    output_path = os.path.join(self.reporting_root, 'tsne')
+    if not os.path.exists(output_path):
+      os.mkdir(output_path)
+    outputs = self.write_data(prediction_batches, dataset, split_name, save=False)
+    pca = PCA(n_components=32, random_state=229)
+    tsne = TSNE(n_components=2, random_state=229, verbose=10)
+    print("Fitting preliminary PCA.")
+
+    keys = ['']
+    if 'keys' in self.args['dataset']:
+      keys = self.args['dataset']['keys'][split_name]
+
+    # we sample uniformly per-language
+    labels = outputs['relations']
+    langs_to_indices = {}
+    num_needed = num_to_write // len(keys)
+    lang_labels = np.array(outputs['langs'])
+    for lang in keys:
+      indices_to_choose = np.where(lang_labels == lang)[0]
+      if num_needed > indices_to_choose.shape[0]:
+        print("Warning: wanted", num_needed, "examples for tSNE, but only", indices_to_choose.shape[0], "found.")
+      indices_needed = indices_to_choose[np.random.choice(indices_to_choose.shape[0], min(num_needed, indices_to_choose.shape[0]), replace=False)]
+      langs_to_indices[lang] = indices_needed
+    indices = np.concatenate([langs_to_indices[lang] for lang in keys])
+
+    to_write = ['relations', 'sentences', 'idxs',	'words', 'langs']
+    cut_outputs = {(output_name[:-1] if output_name.endswith('s') else output_name): np.expand_dims(np.array(outputs[output_name])[indices], axis=1) for output_name in to_write}
+
+    # Perform tSNE
+    base_diffs = np.array(outputs['base_diffs'])[indices]
+    cut_diffs = pca.fit_transform(base_diffs)
+    print("Fitted PCA to 32 dimensions.")
+    reduced = tsne.fit_transform(cut_diffs)
+    tsv_out = np.concatenate((reduced, *cut_outputs.values()), axis=1)
+    for cut_output, cut_vector in cut_outputs.items():
+      with open(os.path.join(output_path, split_name + '-' + cut_output + '.txt'), 'w') as f:
+        # print(cut_output, cut_vector)
+        f.write('\n'.join(list(cut_vector.astype(str).squeeze())))
+    hf = h5py.File(os.path.join(output_path, split_name + '.hdf5'), 'w')
+
+    header = "x0\tx1\t" + "\t".join(cut_outputs.keys())
+    print("Writing to", os.path.join(output_path, split_name + '.tsv'))
+    np.savetxt(os.path.join(output_path, split_name + '.tsv'), tsv_out, fmt="%s", header=header, comments="", delimiter="\t")
+
+
+
+
 
 
   def write_json(self, prediction_batches, dataset, split_name):
@@ -160,9 +322,20 @@ class WordPairReporter(Reporter):
         'proj_acc': self.report_proj_nonproj_accuracy,
         'adj_acc': self.report_adj_accuracy,
         'write_data': self.write_data,
+        'tsne': self.write_tsne,
+        'visualize_tsne': self.visualize_tsne,
+        'pca': self.write_pca,
+        'unproj_tsne': self.write_unprojected_tsne,
     }
     self.reporting_root = args['reporting']['root']
     self.test_reporting_constraint = {'spearmanr', 'uuas', 'root_acc'}
+
+  def generate_square_dist_matrix(self, length):
+    x = np.linspace(-(length-1)/2, (length-1)/2, num=length)
+    weighting = np.flip(x).T[:, np.newaxis] + x # black magic
+    weighting = np.abs(weighting)
+    weighting = torch.FloatTensor(weighting)
+    return weighting
 
   def report_spearmanr(self, prediction_batches, dataset, split_name):
     """Writes the Spearman correlations between predicted and true distances.
@@ -182,6 +355,7 @@ class WordPairReporter(Reporter):
       split_name the string naming the data split: {train,dev,test}
     """
     lengths_to_spearmanrs = defaultdict(list)
+    use_linear = False 
     for prediction_batch, (data_batch, label_batch, length_batch, observation_batch) in zip(
         prediction_batches, dataset):
       for prediction, label, length, (observation, _) in zip(
@@ -189,18 +363,21 @@ class WordPairReporter(Reporter):
           length_batch, observation_batch):
         words = observation.sentence
         length = int(length)
-        prediction = prediction[:length,:length]
+
+        # uncomment this for linear baseline
+        if use_linear: prediction = self.generate_square_dist_matrix(length) 
+        else: prediction = prediction[:length,:length]
         label = label[:length,:length].cpu()
         spearmanrs = [spearmanr(pred, gold) for pred, gold in zip(prediction, label)]
         lengths_to_spearmanrs[length].extend([x.correlation for x in spearmanrs])
     mean_spearman_for_each_length = {length: np.mean(lengths_to_spearmanrs[length])
         for length in lengths_to_spearmanrs}
 
-    with open(os.path.join(self.reporting_root, split_name + '.spearmanr'), 'w') as fout:
+    with open(os.path.join(self.reporting_root, split_name + '.spearmanr' + ('_linear' if use_linear else '')), 'w') as fout:
       for length in sorted(mean_spearman_for_each_length):
         fout.write(str(length) + '\t' + str(mean_spearman_for_each_length[length]) + '\n')
 
-    with open(os.path.join(self.reporting_root, split_name + '.spearmanr-5_50-mean'), 'w') as fout:
+    with open(os.path.join(self.reporting_root, split_name + '.spearmanr-5_50-mean' + ('_linear' if use_linear else '')), 'w') as fout:
       mean = np.mean([mean_spearman_for_each_length[x] for x in range(5,51) if x in mean_spearman_for_each_length])
       fout.write(str(mean) + '\n')
 
@@ -282,6 +459,9 @@ class WordPairReporter(Reporter):
         label = label[:length,:length].cpu()
 
         gold_edges = prims_matrix_to_edges(label, words, poses)
+
+        # uncomment this for linear baseline
+        # pred_edges = [(i, i+1) for i in range(len(words)-1)]
         pred_edges = prims_matrix_to_edges(prediction, words, poses)
 
         if split_name != 'test' and total_sents < 20:
@@ -294,6 +474,8 @@ class WordPairReporter(Reporter):
     uuas = uspan_correct / float(uspan_total)
     with open(os.path.join(self.reporting_root, split_name + '.uuas'), 'w') as fout:
       fout.write(str(uuas) + '\n')
+
+
 
   def report_proj_nonproj_accuracy(self, prediction_batches, dataset, split_name):
     """Computes the UUAS score for a dataset and writes tikz dependency latex.
@@ -333,25 +515,15 @@ class WordPairReporter(Reporter):
 
         ## calculate which are projective and which are non-projective
         head_indices = [int(x) for x in observation.head_indices]
-        # print(head_indices)
         is_proj = np.zeros([length])
-
         def is_projective(dep):
             head = head_indices[dep]-1
-            # print("dep", dep, words[dep])
-            # print("head", head, words[head])
             for i in range(min(dep, head) + 1, max(dep, head)):
-                # print(" examining", words[i])
                 curr = head_indices[i]
-                # print(curr, words[curr-1])
                 while curr != 0 and curr != head + 1:
                     curr = head_indices[curr-1]
-                    # print(curr, words[curr-1])
                 if head != -1 and curr == 0:
-                    # print("nonproj")
-                    # print()
                     return False
-            # print("proj")
             return True
 
         is_proj = [is_projective(dep) for dep in range(length)]
@@ -377,17 +549,14 @@ class WordPairReporter(Reporter):
                 pairs += 1
                 correct_nonproj_deps += (tuple(sorted([idx, head_idx])) in pred_edges)
 
-        # print(pairs)
         out_debug_pairs = sorted(out_debug_pairs)
-        # print(out_debug_pairs)
         assert gold_edges == out_debug_pairs
-        # for word, val in [kv for kv in zip(words, is_proj)]:
-            # if not val: print("**", end="")
-            # print(word, end="")
-            # if not val: print("**", end="")
-            # print(" ", end="")
-        # print()
-        # print()
+        highlight_proj = False
+        if highlight_proj:
+            for word, val in [kv for kv in zip(words, is_proj)]:
+                if not val: print("**", end="")
+                print(word, end="")
+                if not val: print("**", end="")
 
     correct_deps = correct_proj_deps + correct_nonproj_deps
     total_deps = total_proj_deps + total_nonproj_deps
@@ -464,17 +633,30 @@ class WordPairReporter(Reporter):
 
         for idx, head_idx in enumerate(head_indices):
             if head_idx == -1: continue
-            if poses[idx] == 'ADJ':
-                if head_idx < idx:
+            # if poses[idx] == 'ADJ': print(words[idx], words[head_idx])
+            if poses[idx] == 'ADJ' and poses[head_idx] == 'NOUN':
+                valid = True
+                for i in range(min(idx, head_idx)+1, max(idx, head_idx)): # check that all words in between are adjectives or adverbs
+                  print(words[i])
+                  if poses[i] not in ('ADJ', 'ADV'):
+                     valid = False
+                     break
+                if valid:
+                  if head_idx > idx:
+                    #print("Pre:", " ".join([f"**{words[i]}**" if i == idx else words[i] for i in range(len(words))]))
                     total_pre_adj += 1
+                    print(correct_pre_adj, pred_edges, idx, head_idx)
                     correct_pre_adj += (tuple(sorted([idx, head_idx])) in pred_edges)
-                else:
+                  else:
+                    #print("Post:", " ".join([f"**{words[i]}**" if i == idx else words[i] for i in range(len(words))]))
                     total_post_adj += 1
                     correct_post_adj += (tuple(sorted([idx, head_idx])) in pred_edges)
 
     with open(os.path.join(self.reporting_root, split_name+'-adj.info'), 'w') as fout:
-        fout.write(f"Pre: ({correct_pre_adj}/{total_pre_adj})\t{correct_pre_adj/total_pre_adj}\n")
-        fout.write(f"Post: ({correct_post_adj}\n{total_post_adj})\t{correct_post_adj/total_post_adj}\n")
+        if total_pre_adj:
+          fout.write(f"Pre: ({correct_pre_adj}/{total_pre_adj})\t{correct_pre_adj/total_pre_adj}\n")
+        if total_post_adj:
+          fout.write(f"Post: ({correct_post_adj}/{total_post_adj})\t{correct_post_adj/total_post_adj}\n")
 
   def print_tikz(self, prediction_edges, gold_edges, words, split_name):
     ''' Turns edge sets on word (nodes) into tikz dependency LaTeX. '''
@@ -745,7 +927,6 @@ def prims_matrix_to_edges(matrix, words, poses):
   '''
   pairs_to_distances = {}
   uf = UnionFind(len(matrix))
-  # print(poses)
   for i_index, line in enumerate(matrix):
     for j_index, dist in enumerate(line):
       if poses[i_index] in ["''", ",", ".", ":", "``", "-LRB-", "-RRB-", "PUNCT"]:

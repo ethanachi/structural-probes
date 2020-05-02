@@ -129,7 +129,7 @@ def run_train_probe(args, probe, dataset, model, loss, reporter, regimen):
     probe: An instance of probe.Probe or subclass.
           Maps hidden states to linguistic quantities.
     dataset: An instance of data.SimpleDataset or subclass.
-          Provides access to DataLoaders of corpora. 
+          Provides access to DataLoaders of corpora.
     model: An instance of model.Model
           Provides word representations.
     reporter: An instance of reporter.Reporter
@@ -205,7 +205,7 @@ def setup_new_experiment_dir(args, yaml_args, reuse_results_path):
 
   If reuse_results_path is not None, then it is reused; no new
   directory is constrcted.
-  
+
   Args:
     args: the command-line arguments:
     yaml_args: the global config dictionary loaded from yaml
@@ -257,4 +257,5 @@ if __name__ == '__main__':
   setup_new_experiment_dir(cli_args, yaml_args, cli_args.results_dir)
   device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
   yaml_args['device'] = device
+  yaml_args['train_probe'] = cli_args.train_probe
   execute_experiment(yaml_args, train_probe=cli_args.train_probe, report_results=cli_args.report_results)

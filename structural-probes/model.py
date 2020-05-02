@@ -119,4 +119,3 @@ class DecayModel(Model):
     normalization = normalization.unsqueeze(1).unsqueeze(0)
     decay_aggregate = (forward_aggregate + backward_aggregate) / normalization
     return decay_aggregate
-

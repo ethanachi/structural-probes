@@ -78,7 +78,7 @@ class L1DepthLoss(nn.Module):
       batch_loss = torch.tensor(0.0, device=self.args['device'])
     return batch_loss, total_sents
 
-  
+
 class CrossEntropyLoss(nn.Module):
 
   def __init__(self, args):
@@ -104,4 +104,3 @@ class CrossEntropyLoss(nn.Module):
     #  label_batch = label_batch.view(batchlen*seqlen*seqlen).float()
     #  cross_entropy_loss = self.pytorch_bce_loss(predictions, label_batch)
     return cross_entropy_loss, total_sents
-
