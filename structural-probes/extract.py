@@ -26,20 +26,6 @@ import os
 
 from run_experiment import choose_dataset_class, choose_probe_class, choose_model_class
 
-USE_MULTILINGUAL = False
-
-LANG_MAPPING = {
-  "ar": range(1 - 1, 909),
-  "de": range(910 - 1, 1708),
-  "en": range(1709 - 1, 3710),
-  "es": range(3711 - 1, 5364),
-  "fa": range(5365 - 1, 5963),
-  "fi": range(5964 - 1, 7327),
-  "fr": range(7328 - 1, 8803),
-  "id": range(8804 - 1, 9362),
-  "zh": range(9363 - 1, 9862)
-}
-
 def save_vector(path, name, arr):
   np.save(os.path.join(path, name + '.npy'), arr)
 
@@ -62,15 +48,13 @@ def write_data(args, probe, dataset, model, results_dir, output_path):
         projection = torch.matmul(representation, proj_matrix).detach().cpu().numpy()
         head_indices = [int(x) - 1 for x in observation.head_indices]
         projection_heads = projection[head_indices]
-        prefix = (LANG_MAPPING[i] + '-') if USE_MULTILINGUAL else ""
-        append_prefix = lambda x: [prefix + elem for elem in x]
         to_add = {
           "projections": projection,
           "sentences": [" ".join(observation.sentence)] * int(length),
           "idxs": range(representation.shape[0]),
           "words": observation.sentence,
-          "relations": append_prefix(observation.governance_relations),
-          "pos": append_prefix((observation.upos_sentence if hasattr(observation, 'upos_sentence') else observation.pos)),
+          "relations": observation.governance_relations,
+          "pos": (observation.upos_sentence if hasattr(observation, 'upos_sentence') else observation.pos),
           "pairs": np.stack((projection, projection_heads)),
           "diffs": np.array(projection) - np.array(projection_heads),
           "is_head": [(x == '0') for x in observation.head_indices],

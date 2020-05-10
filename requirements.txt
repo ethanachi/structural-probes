@@ -5,3 +5,4 @@ PyYAML
 numpy
 h5py
 tqdm
+sklearn

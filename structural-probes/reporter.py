@@ -13,28 +13,15 @@ import sklearn.metrics
 import torch
 import h5py
 
-# import matplotlib as mpl
-# mpl.use('Agg')
-# import matplotlib.pyplot as plt
-#import seaborn as sns
-#sns.set(style="darkgrid")
-# mpl.rcParams['agg.path.chunksize'] = 10000
+import matplotlib as mpl
+mpl.use('Agg')
+import matplotlib.pyplot as plt
+import seaborn as sns
+sns.set(style="darkgrid")
+mpl.rcParams['agg.path.chunksize'] = 10000
 from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
 
-USE_MULTILINGUAL = False
-
-LANG_MAPPING = {
-  "ar": range(1 - 1, 909),
-  "de": range(910 - 1, 1708),
-  "en": range(1709 - 1, 3710),
-  "es": range(3711 - 1, 5364),
-  "fa": range(5365 - 1, 5963),
-  "fi": range(5964 - 1, 7327),
-  "fr": range(7328 - 1, 8803),
-  "id": range(8804 - 1, 9362),
-  "zh": range(9363 - 1, 9862)
-}
 class Reporter:
   """Base class for reporting.
 
@@ -75,15 +62,20 @@ class Reporter:
 
 
   def write_data(self, prediction_batches, dataset, split_name, save=True):
+    """
+    Writes data to disk for easier analysis.
+
+    Args:
+      prediction_batches: A sequence of batches of predictions for a data split
+      dataset: A DataLoader for a data split
+      split_name: the string naming the data split: {train,dev,test}
+      save: Whether to save to disk, or to return only.
+    """
     output_path = os.path.join(self.reporting_root, 'data')
     if not os.path.exists(output_path):
       os.mkdir(output_path)
 
-
-    probe_params_path = os.path.join(self.reporting_root, self.args['probe']['params_path'])
-    didTrain = (os.path.exists(probe_params_path))
-
-    if didTrain:
+    if self.args['did_train']:
       print("Probe was trained.")
     else:
       print("Probe was not trained, omitting projections...")
@@ -96,13 +88,11 @@ class Reporter:
         representation = self.model(representation[:length])
         head_indices = [int(x) - 1 for x in observation.head_indices]
 
-        if didTrain:
+        if self.args['did_train']:
           proj_matrix = self.probe.proj if hasattr(self.probe, 'proj') else self.probe.linear1.weight.data.transpose(0, 1)
           projection = torch.matmul(representation, proj_matrix).detach().cpu().numpy()
           projection_heads = projection[head_indices]
 
-        prefix = (LANG_MAPPING[i] + '-') if USE_MULTILINGUAL else ""
-        append_prefix = lambda x: [prefix + elem for elem in x]
         to_add = {
           "sentences": [" ".join(observation.sentence)] * int(length),
           "idxs": range(representation.shape[0]),
@@ -114,7 +104,7 @@ class Reporter:
         }
         if save: to_add['representations'] = representation.detach().cpu().numpy()
         else: to_add['base_diffs'] = representation.detach().cpu().numpy() - representation[head_indices].detach().cpu().numpy()
-        if didTrain: to_add.update({
+        if self.args['did_train']: to_add.update({
             "projections": projection,
             "diffs": np.array(projection) - np.array(projection_heads)
         })
@@ -135,20 +125,29 @@ class Reporter:
         else:
           with open(os.path.join(self.reporting_root, split_name + '-' + output + '.txt'), 'w') as fout:
             fout.write("\n".join(str(item) for item in values))
-
     return outputs
 
   def write_tsne(self, prediction_batches, dataset, split_name, num_to_write=100000):
+    """
+    Writes a t-SNE visualization of dependencies to disk, along with a server to visualize them.
+
+    Args:
+      prediction_batches: A sequence of batches of predictions for a data split
+      dataset: A DataLoader for a data split
+      split_name: the string naming the data split: {train,dev,test}
+      num_to_write: How many dependencies to visualize (chosen uniformly per-language)
+    """
     now = datetime.now()
     date_suffix = '-'.join((str(x) for x in [now.year, now.month, now.day, now.hour, now.minute, now.second, now.microsecond]))
     output_path = os.path.join(self.reporting_root, 'tsne' + '-' + date_suffix)
     if not os.path.exists(output_path):
       os.mkdir(output_path)
     print("Constructing new tsne reporting directory at", output_path)
+
     outputs = self.write_data(prediction_batches, dataset, split_name, save=False)
     if 'reporting_settings' in self.args['reporting']:
         ppl = self.args['reporting']['reporting_settings']['ppl']
-        print("Setting perplexity to", ppl) 
+        print("Setting perplexity to", ppl)
     else:
         ppl = 30
 
@@ -193,14 +192,27 @@ class Reporter:
 
     header = "x0\tx1\t" + "\t".join(cut_outputs.keys())
     print("Writing to", os.path.join(output_path, split_name + '.tsv'))
-    np.savetxt(os.path.join(output_path, split_name + '.tsv'), tsv_out, fmt="%s", header=header, comments="", delimiter="\t")
 
-  def visualize_tsne(self, prediction_batches, dataset, split_name, num_to_write=20000):
-    output_path = os.path.join(self.reporting_root, 'pca')
     for filename in ('index.html', 'main.js', 'extended.css'):
       copyfile(os.path.join('../visualization/', filename), os.path.join(output_path, filename))
+    print("")
+
+    print("Visualize:")
+    print("\tcd", output_path)
+    print("\tpython3 -m http.server")
+
+    np.savetxt(os.path.join(output_path, split_name + '.tsv'), tsv_out, fmt="%s", header=header, comments="", delimiter="\t")
 
   def write_pca(self, prediction_batches, dataset, split_name, num_to_write=100000):
+    """
+    Writes a PCA visualization of dependencies to disk, along with a server to visualize them.
+
+    Args:
+      prediction_batches: A sequence of batches of predictions for a data split
+      dataset: A DataLoader for a data split
+      split_name: the string naming the data split: {train,dev,test}
+      num_to_write: How many dependencies to visualize (chosen uniformly per-language)
+    """
     output_path = os.path.join(self.reporting_root, 'tsne')
     if not os.path.exists(output_path):
       os.mkdir(output_path)
@@ -245,12 +257,21 @@ class Reporter:
 
 
   def write_unprojected_tsne(self, prediction_batches, dataset, split_name, num_to_write=100000):
+    """
+    Writes a t-SNE visualization of dependencies to disk, projected to 32 dimensions using PCA, not the structural probe.
+
+    Args:
+      prediction_batches: A sequence of batches of predictions for a data split
+      dataset: A DataLoader for a data split
+      split_name: the string naming the data split: {train,dev,test}
+      num_to_write: How many dependencies to visualize (chosen uniformly per-language)
+    """
     output_path = os.path.join(self.reporting_root, 'tsne')
     if not os.path.exists(output_path):
       os.mkdir(output_path)
     outputs = self.write_data(prediction_batches, dataset, split_name, save=False)
     pca = PCA(n_components=32, random_state=229)
-    tsne = TSNE(n_components=2, random_state=229, verbose=10)
+
     print("Fitting preliminary PCA.")
 
     keys = ['']
@@ -277,6 +298,19 @@ class Reporter:
     base_diffs = np.array(outputs['base_diffs'])[indices]
     cut_diffs = pca.fit_transform(base_diffs)
     print("Fitted PCA to 32 dimensions.")
+
+    if 'reporting_settings' in self.args['reporting']:
+        ppl = self.args['reporting']['reporting_settings']['ppl']
+        print("Setting perplexity to", ppl)
+    else:
+        ppl = 30
+
+    if 'reporting_settings' in self.args['reporting'] and 'training_iterations' in self.args['reporting']['reporting_settings']:
+        n_iter = self.args['reporting_settings']['n_iter']
+    else:
+        n_iter = 1000
+
+    tsne = TSNE(n_components=2, verbose=10, perplexity=ppl, n_iter=n_iter)
     reduced = tsne.fit_transform(cut_diffs)
     tsv_out = np.concatenate((reduced, *cut_outputs.values()), axis=1)
     for cut_output, cut_vector in cut_outputs.items():
@@ -288,11 +322,6 @@ class Reporter:
     header = "x0\tx1\t" + "\t".join(cut_outputs.keys())
     print("Writing to", os.path.join(output_path, split_name + '.tsv'))
     np.savetxt(os.path.join(output_path, split_name + '.tsv'), tsv_out, fmt="%s", header=header, comments="", delimiter="\t")
-
-
-
-
-
 
   def write_json(self, prediction_batches, dataset, split_name):
     """Writes observations and predictions to disk.
@@ -318,12 +347,10 @@ class WordPairReporter(Reporter):
         'image_examples':self.report_image_examples,
         'uuas':self.report_uuas_and_tikz,
         'write_predictions':self.write_json,
-        'write_data': self.write_data,
         'proj_acc': self.report_proj_nonproj_accuracy,
         'adj_acc': self.report_adj_accuracy,
         'write_data': self.write_data,
         'tsne': self.write_tsne,
-        'visualize_tsne': self.visualize_tsne,
         'pca': self.write_pca,
         'unproj_tsne': self.write_unprojected_tsne,
     }
@@ -355,7 +382,7 @@ class WordPairReporter(Reporter):
       split_name the string naming the data split: {train,dev,test}
     """
     lengths_to_spearmanrs = defaultdict(list)
-    use_linear = False 
+    use_linear = False
     for prediction_batch, (data_batch, label_batch, length_batch, observation_batch) in zip(
         prediction_batches, dataset):
       for prediction, label, length, (observation, _) in zip(
@@ -365,7 +392,7 @@ class WordPairReporter(Reporter):
         length = int(length)
 
         # uncomment this for linear baseline
-        if use_linear: prediction = self.generate_square_dist_matrix(length) 
+        if use_linear: prediction = self.generate_square_dist_matrix(length)
         else: prediction = prediction[:length,:length]
         label = label[:length,:length].cpu()
         spearmanrs = [spearmanr(pred, gold) for pred, gold in zip(prediction, label)]
@@ -551,8 +578,8 @@ class WordPairReporter(Reporter):
 
         out_debug_pairs = sorted(out_debug_pairs)
         assert gold_edges == out_debug_pairs
-        highlight_proj = False
-        if highlight_proj:
+        verbose = False
+        if verbose:
             for word, val in [kv for kv in zip(words, is_proj)]:
                 if not val: print("**", end="")
                 print(word, end="")
@@ -633,7 +660,6 @@ class WordPairReporter(Reporter):
 
         for idx, head_idx in enumerate(head_indices):
             if head_idx == -1: continue
-            # if poses[idx] == 'ADJ': print(words[idx], words[head_idx])
             if poses[idx] == 'ADJ' and poses[head_idx] == 'NOUN':
                 valid = True
                 for i in range(min(idx, head_idx)+1, max(idx, head_idx)): # check that all words in between are adjectives or adverbs
@@ -643,12 +669,10 @@ class WordPairReporter(Reporter):
                      break
                 if valid:
                   if head_idx > idx:
-                    #print("Pre:", " ".join([f"**{words[i]}**" if i == idx else words[i] for i in range(len(words))]))
                     total_pre_adj += 1
                     print(correct_pre_adj, pred_edges, idx, head_idx)
                     correct_pre_adj += (tuple(sorted([idx, head_idx])) in pred_edges)
                   else:
-                    #print("Post:", " ".join([f"**{words[i]}**" if i == idx else words[i] for i in range(len(words))]))
                     total_post_adj += 1
                     correct_post_adj += (tuple(sorted([idx, head_idx])) in pred_edges)
 

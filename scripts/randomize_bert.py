@@ -1,3 +1,6 @@
+# Randomizes the encoder layers of a BERT model.
+# Ethan Chi (ethanchi@stanford.edu), May 2020
+
 from pytorch_pretrained_bert import BertModel
 import sys
 import torch
@@ -17,5 +20,3 @@ for key in state_dict:
 
 print("All replaced.")
 torch.save(state_dict, sys.argv[1])
-
-    

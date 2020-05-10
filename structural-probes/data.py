@@ -204,12 +204,10 @@ class SimpleDataset:
 
       head_indices = list(data[head_index])
 
-      # resolve ambiguities
+      # resolve ambiguities that arise with multiwords
       for i, indices in enumerate(head_indices, 1):
         if not isinstance(indices, list): continue # nothing to be resolved
-        # print(indices)
         indices = list(dict.fromkeys(indices))    # remove duplicates; can't use set because want to preserve order
-        # print(indices)
         if len(indices) == 0:
           raise AssertionError
         if '0' in indices:
@@ -233,7 +231,6 @@ class SimpleDataset:
       langs = [key for x in range(len(conllx_lines))]
       embeddings = [None for x in range(len(conllx_lines))]
       observation = self.observation_class(*data, langs, embeddings)
-      # print(observation)
       observations.append(observation)
 
     return observations
@@ -363,7 +360,7 @@ class SimpleDataset:
           Observation batch (not padded)
     '''
     if self.use_disk_embeddings:
-      seqs = [x[0].embeddings.cuda() for x in batch_observations]
+      seqs = [x[0].embeddings.to(device=self.args['device']) for x in batch_observations]
     else:
       seqs = [torch.tensor(x[0].sentence, device=self.args['device']) for x in batch_observations]
     lengths = torch.tensor([len(x) for x in seqs], device=self.args['device'])

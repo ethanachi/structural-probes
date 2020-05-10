@@ -4,6 +4,8 @@ for turning conll-formatted files to sentence-per-line
 whitespace-tokenized files.
 
 Takes the filepath at sys.argv[1]; writes to stdout
+
+John Hewitt, 2019
 """
 
 import sys

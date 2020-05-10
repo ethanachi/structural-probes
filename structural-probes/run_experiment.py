@@ -258,4 +258,5 @@ if __name__ == '__main__':
   device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
   yaml_args['device'] = device
   yaml_args['train_probe'] = cli_args.train_probe
+  yaml_args['did_train'] = (os.path.exists(os.path.join(yaml_args['reporting']['root'], yaml_args['probe']['params_path'])))
   execute_experiment(yaml_args, train_probe=cli_args.train_probe, report_results=cli_args.report_results)

@@ -6,8 +6,8 @@ Adapted from the BERT readme (and using the corresponding package) at
 https://github.com/huggingface/pytorch-pretrained-BERT
 
 ###
-John Hewitt, johnhew@stanford.edu
-Feb 2019
+John Hewitt, johnhew@stanford.edu, Feb 2019
+Modifications by Ethan Chi, ethanchi@stanford.edu, May 2020
 
 '''
 import torch
@@ -17,10 +17,13 @@ import h5py
 import numpy as np
 from tqdm import tqdm
 
+RANDOM_PATH =
+
 argp = ArgumentParser()
 argp.add_argument('input_path')
 argp.add_argument('output_path')
 argp.add_argument('bert_model', help='base, large, or multilingual')
+argp.add_argument('language_code')
 args = argp.parse_args()
 
 # Load pre-trained model tokenizer (vocabulary)
@@ -42,35 +45,46 @@ elif args.bert_model == 'multilingual':
   FEATURE_COUNT = 768
 elif args.bert_model == 'multirandom':
   tokenizer = BertTokenizer.from_pretrained('bert-base-multilingual-cased')
-  model = BertModel.from_pretrained('/sailhome/ethanchi/structural-probes/bertParams/random.tar')
+  model = BertModel.from_pretrained(RANDOM_PATH)
   LAYER_COUNT = 12
   FEATURE_COUNT = 768
+elif args.bert_model == "base-uncased":
+  tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+  model = BertModel.from_pretrained('bert-base-uncased')
+  LAYER_COUNT = 12
+  FEATURE_COUNT = 768
+elif args.bert_model == "large-uncased":
+  tokenizer = BertTokenizer.from_pretrained('bert-large-uncased')
+  model = BertModel.from_pretrained('bert-large-uncased')
+  LAYER_COUNT = 24
+  FEATURE_COUNT = 1024
 else:
   raise ValueError("BERT model must be base, large, multilingual, or multilingual-randomized")
 
 model.eval()
 
-with h5py.File(args.output_path, 'w') as fout:
+with h5py.File(args.output_path, 'a') as fout:
   for index, line in tqdm(enumerate(open(args.input_path))):
     line = line.strip() # Remove trailing characters
     line = '[CLS] ' + line + ' [SEP]'
-    
-    # print("Sentence being tokenized: " + str(index) + " " + line)
-    # print("Line length:", len(line.split()))
+
     tokenized_text = tokenizer.wordpiece_tokenizer.tokenize(line)
-    # print(tokenized_text)
     indexed_tokens = tokenizer.convert_tokens_to_ids(tokenized_text)
-    # print(len(indexed_tokens), "token(s) produced.")
     segment_ids = [1 for x in tokenized_text]
-  
+
     # Convert inputs to PyTorch tensors
     tokens_tensor = torch.tensor([indexed_tokens])
     segments_tensors = torch.tensor([segment_ids])
-  
+
     with torch.no_grad():
         encoded_layers, _ = model(tokens_tensor, segments_tensors)
-    
-    dset = fout.create_dataset(str(index), (LAYER_COUNT, len(tokenized_text), FEATURE_COUNT))
-    dset[:,:,:] = np.vstack([np.array(x) for x in encoded_layers])
-  
 
+    key = args.language_code + '-' + str(index)
+    try:
+      dset = fout.create_dataset(key, (LAYER_COUNT, len(tokenized_text), FEATURE_COUNT))
+    except RuntimeError:
+      dset = fout[key]
+
+    dset[:,:,:] = np.vstack([np.array(x) for x in encoded_layers])
+
+  print("Current keys are: ", ", ".join(fout.keys()))
